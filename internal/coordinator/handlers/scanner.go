@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/boet/loc-scanner/internal/coordinator/db"
-	"github.com/boet/loc-scanner/internal/coordinator/middleware"
-	"github.com/boet/loc-scanner/pkg/api"
+	"github.com/locplace/scanner/internal/coordinator/db"
+	"github.com/locplace/scanner/internal/coordinator/middleware"
+	"github.com/locplace/scanner/pkg/api"
 )
 
 // ScannerHandlers contains handlers for scanner endpoints.

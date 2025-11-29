@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/boet/loc-scanner/internal/coordinator"
-	"github.com/boet/loc-scanner/internal/coordinator/db"
-	"github.com/boet/loc-scanner/internal/coordinator/reaper"
+	"github.com/locplace/scanner/internal/coordinator"
+	"github.com/locplace/scanner/internal/coordinator/db"
+	"github.com/locplace/scanner/internal/coordinator/reaper"
 )
 
 func main() {

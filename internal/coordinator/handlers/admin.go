@@ -8,8 +8,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/boet/loc-scanner/internal/coordinator/db"
-	"github.com/boet/loc-scanner/pkg/api"
+	"github.com/locplace/scanner/internal/coordinator/db"
+	"github.com/locplace/scanner/pkg/api"
 )
 
 // AdminHandlers contains handlers for admin endpoints.

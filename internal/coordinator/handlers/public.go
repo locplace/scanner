@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/boet/loc-scanner/internal/coordinator/db"
-	"github.com/boet/loc-scanner/pkg/api"
+	"github.com/locplace/scanner/internal/coordinator/db"
+	"github.com/locplace/scanner/pkg/api"
 )
 
 // PublicHandlers contains handlers for public endpoints.

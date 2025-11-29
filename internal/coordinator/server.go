@@ -8,9 +8,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
-	"github.com/boet/loc-scanner/internal/coordinator/db"
-	"github.com/boet/loc-scanner/internal/coordinator/handlers"
-	"github.com/boet/loc-scanner/internal/coordinator/middleware"
+	"github.com/locplace/scanner/internal/coordinator/db"
+	"github.com/locplace/scanner/internal/coordinator/handlers"
+	"github.com/locplace/scanner/internal/coordinator/middleware"
 )
 
 // Config holds server configuration.

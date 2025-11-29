@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/boet/loc-scanner/internal/coordinator/db"
+	"github.com/locplace/scanner/internal/coordinator/db"
 )
 
 // Reaper periodically releases stale scan assignments.

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/boet/loc-scanner/internal/coordinator/db"
+	"github.com/locplace/scanner/internal/coordinator/db"
 )
 
 type contextKey string

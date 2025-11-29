@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: locscanner
+      POSTGRES_PASSWORD: locscanner
+      POSTGRES_DB: locscanner
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U locscanner"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  coordinator:
+    build:
+      context: .
+      dockerfile: Dockerfile.coordinator
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://locscanner:locscanner@postgres:5432/locscanner?sslmode=disable
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-secret-admin-key}
+      LISTEN_ADDR: ":8080"
+      JOB_TIMEOUT: "10m"
+      HEARTBEAT_TIMEOUT: "2m"
+      REAPER_INTERVAL: "60s"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Scanner is optional - run separately or uncomment to include
+  # scanner:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.scanner
+  #   environment:
+  #     COORDINATOR_URL: http://coordinator:8080
+  #     SCANNER_TOKEN: ${SCANNER_TOKEN}
+  #     WORKER_COUNT: "4"
+  #     BATCH_SIZE: "3"
+  #     HEARTBEAT_INTERVAL: "30s"
+  #   depends_on:
+  #     - coordinator
+
+volumes:
+  postgres_data:

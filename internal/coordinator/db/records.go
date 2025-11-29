@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/boet/loc-scanner/pkg/api"
+	"github.com/locplace/scanner/pkg/api"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -61,6 +61,7 @@ func (db *DB) ListLOCRecords(ctx context.Context, limit, offset int, domainFilte
 
 	// Get records
 	var rows pgx.Rows
+	var err error
 	if domainFilter != "" {
 		rows, err = db.Pool.Query(ctx, `
 			SELECT l.fqdn, rd.domain, l.raw_record, l.latitude, l.longitude,
