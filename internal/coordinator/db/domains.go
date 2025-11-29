@@ -38,7 +38,8 @@ func (db *DB) InsertDomains(ctx context.Context, domains []string) (inserted, du
 
 // GetDomainsToScan returns domains that are not currently being scanned,
 // ordered by last_scanned_at (NULL first, then oldest).
-func (db *DB) GetDomainsToScan(ctx context.Context, clientID string, count int) ([]string, error) {
+// If rescanInterval > 0, domains scanned within that duration are excluded.
+func (db *DB) GetDomainsToScan(ctx context.Context, clientID string, count int, rescanInterval time.Duration) ([]string, error) {
 	// Use a transaction to atomically select and assign domains
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
@@ -46,17 +47,34 @@ func (db *DB) GetDomainsToScan(ctx context.Context, clientID string, count int) 
 	}
 	defer tx.Rollback(ctx)
 
-	// Select domains not in active_scans, ordered by last_scanned_at
-	rows, err := tx.Query(ctx, `
-		SELECT rd.id, rd.domain
-		FROM root_domains rd
-		WHERE NOT EXISTS (
-			SELECT 1 FROM active_scans s WHERE s.root_domain_id = rd.id
-		)
-		ORDER BY rd.last_scanned_at NULLS FIRST, rd.created_at
-		LIMIT $1
-		FOR UPDATE OF rd SKIP LOCKED
-	`, count)
+	// Build query - optionally exclude recently scanned domains
+	var rows pgx.Rows
+	if rescanInterval > 0 {
+		// Exclude domains scanned within the rescan interval
+		rows, err = tx.Query(ctx, `
+			SELECT rd.id, rd.domain
+			FROM root_domains rd
+			WHERE NOT EXISTS (
+				SELECT 1 FROM active_scans s WHERE s.root_domain_id = rd.id
+			)
+			AND (rd.last_scanned_at IS NULL OR rd.last_scanned_at < NOW() - $2::interval)
+			ORDER BY rd.last_scanned_at NULLS FIRST, rd.created_at
+			LIMIT $1
+			FOR UPDATE OF rd SKIP LOCKED
+		`, count, rescanInterval.String())
+	} else {
+		// No rescan interval - return all eligible domains
+		rows, err = tx.Query(ctx, `
+			SELECT rd.id, rd.domain
+			FROM root_domains rd
+			WHERE NOT EXISTS (
+				SELECT 1 FROM active_scans s WHERE s.root_domain_id = rd.id
+			)
+			ORDER BY rd.last_scanned_at NULLS FIRST, rd.created_at
+			LIMIT $1
+			FOR UPDATE OF rd SKIP LOCKED
+		`, count)
+	}
 	if err != nil {
 		return nil, err
 	}

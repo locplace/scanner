@@ -67,6 +67,7 @@ docker build -f Dockerfile.scanner -t loc-scanner .
 | `JOB_TIMEOUT` | `10m` | Time before stale jobs are released |
 | `HEARTBEAT_TIMEOUT` | `2m` | Time before client considered dead |
 | `REAPER_INTERVAL` | `60s` | How often to check for stale jobs |
+| `RESCAN_INTERVAL` | `0` (disabled) | Minimum time before a domain can be re-scanned (e.g., `24h`, `7d`) |
 
 ### Scanner
 

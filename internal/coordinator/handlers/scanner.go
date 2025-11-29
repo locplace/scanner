@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/locplace/scanner/internal/coordinator/db"
 	"github.com/locplace/scanner/internal/coordinator/middleware"
@@ -11,7 +12,8 @@ import (
 
 // ScannerHandlers contains handlers for scanner endpoints.
 type ScannerHandlers struct {
-	DB *db.DB
+	DB             *db.DB
+	RescanInterval time.Duration
 }
 
 // GetJobs handles POST /api/scanner/jobs.
@@ -35,7 +37,7 @@ func (h *ScannerHandlers) GetJobs(w http.ResponseWriter, r *http.Request) {
 		req.Count = 100 // Max batch size
 	}
 
-	domains, err := h.DB.GetDomainsToScan(r.Context(), client.ID, req.Count)
+	domains, err := h.DB.GetDomainsToScan(r.Context(), client.ID, req.Count, h.RescanInterval)
 	if err != nil {
 		writeError(w, "failed to get domains", http.StatusInternalServerError)
 		return

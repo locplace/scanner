@@ -17,6 +17,7 @@ import (
 type Config struct {
 	AdminAPIKey      string
 	HeartbeatTimeout time.Duration
+	RescanInterval   time.Duration
 }
 
 // NewServer creates a new HTTP server with all routes configured.
@@ -34,7 +35,8 @@ func NewServer(database *db.DB, cfg Config) http.Handler {
 		HeartbeatTimeout: cfg.HeartbeatTimeout,
 	}
 	scannerHandlers := &handlers.ScannerHandlers{
-		DB: database,
+		DB:             database,
+		RescanInterval: cfg.RescanInterval,
 	}
 	publicHandlers := &handlers.PublicHandlers{
 		DB:               database,
