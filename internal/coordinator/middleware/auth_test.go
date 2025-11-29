@@ -214,3 +214,87 @@ func TestGetClient_FullClient(t *testing.T) {
 		t.Errorf("LastHeartbeat = %v, want %v", got.LastHeartbeat, client.LastHeartbeat)
 	}
 }
+
+// TestScannerAuth_HeaderParsing tests the header parsing logic of ScannerAuth
+// without requiring a database connection. These test the early-exit paths.
+func TestScannerAuth_HeaderParsing(t *testing.T) {
+	// We can't fully test ScannerAuth without a database, but we can test
+	// the header parsing logic that rejects requests before DB lookup.
+
+	tests := []struct {
+		name           string
+		authHeader     string
+		wantStatusCode int
+	}{
+		{
+			name:           "missing Authorization header",
+			authHeader:     "",
+			wantStatusCode: http.StatusUnauthorized,
+		},
+		{
+			name:           "wrong auth scheme - Basic",
+			authHeader:     "Basic dXNlcjpwYXNz",
+			wantStatusCode: http.StatusUnauthorized,
+		},
+		{
+			name:           "wrong auth scheme - no scheme",
+			authHeader:     "just-a-token",
+			wantStatusCode: http.StatusUnauthorized,
+		},
+		{
+			name:           "Bearer with no token",
+			authHeader:     "Bearer ",
+			wantStatusCode: http.StatusUnauthorized, // Empty token will fail DB lookup
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a mock DB that would be called if header parsing passes
+			// Since we're testing early-exit paths, we use nil DB
+			// This will cause a panic if the middleware tries to use it,
+			// which helps us verify the early-exit logic works.
+
+			// For this test, we need a real DB interface, so we'll skip
+			// the cases that would reach the DB lookup. We're only testing
+			// the header validation that happens BEFORE the DB call.
+
+			// The middleware checks: auth == "" || !strings.HasPrefix(auth, "Bearer ")
+			// So "Bearer " (with space, empty token) will pass the header check
+			// and try to call the DB.
+
+			if tt.authHeader == "Bearer " {
+				// This case reaches the DB, skip it in this unit test
+				t.Skip("This case requires DB integration test")
+			}
+
+			// For cases that fail before DB lookup, we can test with nil
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				t.Error("next handler should not be called")
+			})
+
+			middleware := ScannerAuth(nil) // nil DB is fine for early-exit tests
+			handler := middleware(next)
+
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			if tt.authHeader != "" {
+				req.Header.Set("Authorization", tt.authHeader)
+			}
+
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+
+			if rr.Code != tt.wantStatusCode {
+				t.Errorf("status code = %d, want %d", rr.Code, tt.wantStatusCode)
+			}
+		})
+	}
+}
+
+func TestClientContextKey_Type(t *testing.T) {
+	// Verify the context key is the expected type and value
+	// This is a sanity check that the key hasn't been accidentally changed
+	if ClientContextKey != contextKey("client") {
+		t.Errorf("ClientContextKey = %v, want %v", ClientContextKey, contextKey("client"))
+	}
+}
