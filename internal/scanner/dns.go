@@ -96,7 +96,8 @@ func (s *DNSScanner) LookupLOC(ctx context.Context, fqdn string) LOCResult {
 	// Check for LOC answers
 	if queryResult != nil && queryResult.Answers != nil {
 		for _, answer := range queryResult.Answers {
-			if locAnswer, ok := answer.(*zdns.LOCAnswer); ok {
+			// zdns returns value types, not pointers
+			if locAnswer, ok := answer.(zdns.LOCAnswer); ok {
 				result.HasLOC = true
 				result.RawRecord = locAnswer.Coordinates
 				return result

@@ -98,8 +98,22 @@ func (h *ScannerHandlers) SubmitResults(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 
-		// Store LOC records
+		// Deduplicate LOC records: if root domain has a LOC record,
+		// skip subdomains with the same raw record value
+		var rootLOCRecord string
 		for _, loc := range result.LOCRecords {
+			if loc.FQDN == result.Domain {
+				rootLOCRecord = loc.RawRecord
+				break
+			}
+		}
+
+		// Store LOC records with deduplication
+		for _, loc := range result.LOCRecords {
+			// Skip subdomain records that match the root domain's LOC
+			if rootLOCRecord != "" && loc.FQDN != result.Domain && loc.RawRecord == rootLOCRecord {
+				continue
+			}
 			if err := h.DB.UpsertLOCRecord(r.Context(), domain.ID, loc); err != nil {
 				continue
 			}
