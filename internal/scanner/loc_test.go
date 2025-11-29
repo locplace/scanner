@@ -7,24 +7,24 @@ import (
 
 func TestParseLOCRecord(t *testing.T) {
 	tests := []struct {
-		name        string
-		fqdn        string
-		raw         string
-		wantLat     float64
-		wantLon     float64
-		wantAlt     float64
-		wantSize    float64
-		wantHoriz   float64
-		wantVert    float64
-		wantErr     bool
-		tolerance   float64 // for floating point comparison
+		name      string
+		fqdn      string
+		raw       string
+		wantLat   float64
+		wantLon   float64
+		wantAlt   float64
+		wantSize  float64
+		wantHoriz float64
+		wantVert  float64
+		wantErr   bool
+		tolerance float64 // for floating point comparison
 	}{
 		{
 			// Real record from caida.org - Northern hemisphere, Western longitude
 			name:      "caida.org real record",
 			fqdn:      "caida.org",
 			raw:       "32 53 1.000 N 117 14 25.000 W 107.00m 30m 10m 10m",
-			wantLat:   32.883611111, // 32 + 53/60 + 1/3600
+			wantLat:   32.883611111,   // 32 + 53/60 + 1/3600
 			wantLon:   -117.240277778, // negative because West
 			wantAlt:   107.0,
 			wantSize:  30.0,
@@ -38,7 +38,7 @@ func TestParseLOCRecord(t *testing.T) {
 			name:      "ckdhr.com real record with negative altitude",
 			fqdn:      "ckdhr.com",
 			raw:       "42 21 43.528 N 71 5 6.284 W -25.00m 1m 3000m 10m",
-			wantLat:   42.362091111, // 42 + 21/60 + 43.528/3600
+			wantLat:   42.362091111,  // 42 + 21/60 + 43.528/3600
 			wantLon:   -71.085078889, // negative because West
 			wantAlt:   -25.0,
 			wantSize:  1.0,
@@ -360,7 +360,7 @@ func TestParseLOCRecord_BoundaryValues(t *testing.T) {
 			// Extreme altitude - above cruising altitude
 			name:      "high altitude",
 			raw:       "27 59 17.000 N 86 55 31.000 E 8848.00m 1m 1m 1m",
-			wantLat:   27.988055556,  // Mt. Everest approximate
+			wantLat:   27.988055556, // Mt. Everest approximate
 			wantLon:   86.925277778,
 			wantErr:   false,
 			tolerance: 0.0001,

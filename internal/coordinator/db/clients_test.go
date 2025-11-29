@@ -61,7 +61,7 @@ func TestHashToken_DifferentInputs(t *testing.T) {
 	tokens := []string{
 		"token1",
 		"token2",
-		"Token1", // Case difference
+		"Token1",  // Case difference
 		"token1 ", // Trailing space
 		" token1", // Leading space
 	}

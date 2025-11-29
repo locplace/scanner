@@ -4,8 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/locplace/scanner/pkg/api"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/locplace/scanner/pkg/api"
 )
 
 // StoredLOCRecord represents a LOC record in the database.

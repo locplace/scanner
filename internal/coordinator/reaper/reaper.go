@@ -17,7 +17,7 @@ type Reaper struct {
 	HeartbeatTimeout time.Duration
 }
 
-// Run starts the reaper loop. It blocks until the context is cancelled.
+// Run starts the reaper loop. It blocks until the context is canceled.
 func (r *Reaper) Run(ctx context.Context) {
 	ticker := time.NewTicker(r.Interval)
 	defer ticker.Stop()

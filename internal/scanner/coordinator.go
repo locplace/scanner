@@ -52,7 +52,7 @@ func (c *CoordinatorClient) GetJobs(ctx context.Context, count int) ([]string, e
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyBytes, _ := io.ReadAll(resp.Body) //nolint:errcheck // Best effort to get error details
 		return nil, fmt.Errorf("get jobs failed: %d %s", resp.StatusCode, string(bodyBytes))
 	}
 
@@ -90,7 +90,7 @@ func (c *CoordinatorClient) Heartbeat(ctx context.Context, activeDomains []strin
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyBytes, _ := io.ReadAll(resp.Body) //nolint:errcheck // Best effort to get error details
 		return fmt.Errorf("heartbeat failed: %d %s", resp.StatusCode, string(bodyBytes))
 	}
 
@@ -119,7 +119,7 @@ func (c *CoordinatorClient) SubmitResults(ctx context.Context, results []api.Dom
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyBytes, _ := io.ReadAll(resp.Body) //nolint:errcheck // Best effort to get error details
 		return fmt.Errorf("submit results failed: %d %s", resp.StatusCode, string(bodyBytes))
 	}
 

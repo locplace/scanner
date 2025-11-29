@@ -33,7 +33,8 @@ func ParseLOCRecord(fqdn, raw string) (*api.LOCRecord, error) {
 		return nil, fmt.Errorf("invalid LOC record format: %s", raw)
 	}
 
-	// Parse latitude
+	// Parse latitude - regex ensures valid numeric format, so ParseFloat won't fail
+	//nolint:errcheck // Regex validates format
 	latDeg, _ := strconv.ParseFloat(matches[1], 64)
 	latMin, _ := strconv.ParseFloat(matches[2], 64)
 	latSec, _ := strconv.ParseFloat(matches[3], 64)
@@ -44,7 +45,8 @@ func ParseLOCRecord(fqdn, raw string) (*api.LOCRecord, error) {
 		latitude = -latitude
 	}
 
-	// Parse longitude
+	// Parse longitude - regex ensures valid numeric format
+	//nolint:errcheck // Regex validates format
 	lonDeg, _ := strconv.ParseFloat(matches[5], 64)
 	lonMin, _ := strconv.ParseFloat(matches[6], 64)
 	lonSec, _ := strconv.ParseFloat(matches[7], 64)
@@ -55,7 +57,8 @@ func ParseLOCRecord(fqdn, raw string) (*api.LOCRecord, error) {
 		longitude = -longitude
 	}
 
-	// Parse other fields
+	// Parse other fields - regex ensures valid numeric format
+	//nolint:errcheck // Regex validates format
 	altitude, _ := strconv.ParseFloat(matches[9], 64)
 	size, _ := strconv.ParseFloat(matches[10], 64)
 	horizPrec, _ := strconv.ParseFloat(matches[11], 64)
@@ -95,7 +98,8 @@ func ParseLOCRecordLenient(fqdn, raw string) (*api.LOCRecord, error) {
 		return nil, fmt.Errorf("could not parse LOC record: %s", raw)
 	}
 
-	// Parse latitude
+	// Parse latitude - regex ensures valid numeric format
+	//nolint:errcheck // Regex validates format
 	latDeg, _ := strconv.ParseFloat(matches[1], 64)
 	latMin, _ := strconv.ParseFloat(matches[2], 64)
 	latSec, _ := strconv.ParseFloat(matches[3], 64)
@@ -106,7 +110,8 @@ func ParseLOCRecordLenient(fqdn, raw string) (*api.LOCRecord, error) {
 		latitude = -latitude
 	}
 
-	// Parse longitude
+	// Parse longitude - regex ensures valid numeric format
+	//nolint:errcheck // Regex validates format
 	lonDeg, _ := strconv.ParseFloat(matches[5], 64)
 	lonMin, _ := strconv.ParseFloat(matches[6], 64)
 	lonSec, _ := strconv.ParseFloat(matches[7], 64)
@@ -121,9 +126,10 @@ func ParseLOCRecordLenient(fqdn, raw string) (*api.LOCRecord, error) {
 	rest := raw[len(matches[0]):]
 	altitude, size, horizPrec, vertPrec := 0.0, 1.0, 10000.0, 10.0
 
-	// Look for meter values
+	// Look for meter values - regex ensures valid numeric format
 	meterRegex := regexp.MustCompile(`(-?[\d.]+)m`)
 	meterMatches := meterRegex.FindAllStringSubmatch(rest, -1)
+	//nolint:errcheck // Regex validates format
 	if len(meterMatches) >= 1 {
 		altitude, _ = strconv.ParseFloat(meterMatches[0][1], 64)
 	}

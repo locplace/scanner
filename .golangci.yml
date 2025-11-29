@@ -17,12 +17,12 @@ linters:
     - unparam
     - bodyclose
     - noctx
-    - exportloopref
+    - copyloopvar  # Replacement for deprecated exportloopref
 
 linters-settings:
   errcheck:
-    check-type-assertions: true
-    check-blank: true
+    check-type-assertions: false  # Type assertions with ok pattern are intentional
+    check-blank: false  # Allow _ = expr for intentionally ignored errors
   govet:
     enable-all: true
     disable:

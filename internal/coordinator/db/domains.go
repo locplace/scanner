@@ -45,7 +45,7 @@ func (db *DB) GetDomainsToScan(ctx context.Context, clientID string, count int, 
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after commit returns error, which is expected
 
 	// Build query - optionally exclude recently scanned domains
 	var rows pgx.Rows

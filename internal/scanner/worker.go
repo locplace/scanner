@@ -10,21 +10,21 @@ import (
 
 // WorkerConfig holds configuration for a scanner worker.
 type WorkerConfig struct {
-	BatchSize         int
-	SubfinderConfig   SubfinderConfig
-	DNSConfig         DNSConfig
-	RetryDelay        time.Duration
-	EmptyQueueDelay   time.Duration
+	BatchSize       int
+	SubfinderConfig SubfinderConfig
+	DNSConfig       DNSConfig
+	RetryDelay      time.Duration
+	EmptyQueueDelay time.Duration
 }
 
 // DefaultWorkerConfig returns the default worker configuration.
 func DefaultWorkerConfig() WorkerConfig {
 	return WorkerConfig{
-		BatchSize:         3,
-		SubfinderConfig:   DefaultSubfinderConfig(),
-		DNSConfig:         DefaultDNSConfig(),
-		RetryDelay:        5 * time.Second,
-		EmptyQueueDelay:   30 * time.Second,
+		BatchSize:       3,
+		SubfinderConfig: DefaultSubfinderConfig(),
+		DNSConfig:       DefaultDNSConfig(),
+		RetryDelay:      5 * time.Second,
+		EmptyQueueDelay: 30 * time.Second,
 	}
 }
 
@@ -50,7 +50,7 @@ func NewWorker(id int, config WorkerConfig, coordinator *CoordinatorClient, trac
 	}
 }
 
-// Run starts the worker loop. It blocks until the context is cancelled.
+// Run starts the worker loop. It blocks until the context is canceled.
 func (w *Worker) Run(ctx context.Context) {
 	log.Printf("[Worker %d] Started", w.ID)
 

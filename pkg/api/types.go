@@ -72,14 +72,14 @@ type HeartbeatResponse struct {
 
 // LOCRecord represents a discovered LOC record.
 type LOCRecord struct {
-	FQDN        string  `json:"fqdn"`
-	RawRecord   string  `json:"raw_record"`
-	Latitude    float64 `json:"latitude"`
-	Longitude   float64 `json:"longitude"`
-	AltitudeM   float64 `json:"altitude_m"`
-	SizeM       float64 `json:"size_m"`
-	HorizPrecM  float64 `json:"horiz_prec_m"`
-	VertPrecM   float64 `json:"vert_prec_m"`
+	FQDN       string  `json:"fqdn"`
+	RawRecord  string  `json:"raw_record"`
+	Latitude   float64 `json:"latitude"`
+	Longitude  float64 `json:"longitude"`
+	AltitudeM  float64 `json:"altitude_m"`
+	SizeM      float64 `json:"size_m"`
+	HorizPrecM float64 `json:"horiz_prec_m"`
+	VertPrecM  float64 `json:"vert_prec_m"`
 }
 
 // DomainResult represents scan results for a single domain.
@@ -126,14 +126,14 @@ type ListRecordsResponse struct {
 
 // StatsResponse is the response for GET /api/public/stats.
 type StatsResponse struct {
-	TotalRootDomains          int   `json:"total_root_domains"`
-	ScannedRootDomains        int   `json:"scanned_root_domains"`
-	PendingRootDomains        int   `json:"pending_root_domains"`
-	InProgressRootDomains     int   `json:"in_progress_root_domains"`
-	TotalSubdomainsScanned    int64 `json:"total_subdomains_scanned"`
-	ActiveScanners            int   `json:"active_scanners"`
-	TotalLOCRecords           int   `json:"total_loc_records"`
-	UniqueRootDomainsWithLOC  int   `json:"unique_root_domains_with_loc"`
+	TotalRootDomains         int   `json:"total_root_domains"`
+	ScannedRootDomains       int   `json:"scanned_root_domains"`
+	PendingRootDomains       int   `json:"pending_root_domains"`
+	InProgressRootDomains    int   `json:"in_progress_root_domains"`
+	TotalSubdomainsScanned   int64 `json:"total_subdomains_scanned"`
+	ActiveScanners           int   `json:"active_scanners"`
+	TotalLOCRecords          int   `json:"total_loc_records"`
+	UniqueRootDomainsWithLOC int   `json:"unique_root_domains_with_loc"`
 }
 
 // ErrorResponse is a standard error response.

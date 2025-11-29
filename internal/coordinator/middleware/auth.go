@@ -58,7 +58,8 @@ func ScannerAuth(database *db.DB) func(http.Handler) http.Handler {
 }
 
 // GetClient retrieves the authenticated client from the request context.
+// Returns nil if no client is present or if the value is not a *ScannerClient.
 func GetClient(ctx context.Context) *db.ScannerClient {
-	client, _ := ctx.Value(ClientContextKey).(*db.ScannerClient)
+	client, _ := ctx.Value(ClientContextKey).(*db.ScannerClient) //nolint:errcheck // Type assertion returns (nil, false) on failure, which is the desired behavior
 	return client
 }
