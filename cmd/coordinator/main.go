@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -9,9 +10,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
+
 	"github.com/locplace/scanner/internal/coordinator"
 	"github.com/locplace/scanner/internal/coordinator/db"
 	"github.com/locplace/scanner/internal/coordinator/reaper"
+	"github.com/locplace/scanner/migrations"
 )
 
 func main() {
@@ -42,6 +48,11 @@ func main() {
 	}
 	defer database.Close()
 	log.Println("Connected to database")
+
+	// Run migrations
+	if err := runMigrations(databaseURL); err != nil {
+		log.Fatalf("Failed to run migrations: %v", err)
+	}
 
 	// Create server
 	cfg := coordinator.Config{
@@ -113,4 +124,27 @@ func parseDuration(key string, defaultVal time.Duration) time.Duration {
 		return defaultVal
 	}
 	return d
+}
+
+func runMigrations(databaseURL string) error {
+	// Create migration source from embedded files
+	source, err := iofs.New(migrations.FS, ".")
+	if err != nil {
+		return err
+	}
+
+	// Create migrator using database URL
+	m, err := migrate.NewWithSourceInstance("iofs", source, databaseURL)
+	if err != nil {
+		return err
+	}
+	defer m.Close()
+
+	// Run migrations
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return err
+	}
+
+	log.Println("Migrations completed")
+	return nil
 }

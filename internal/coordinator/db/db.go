@@ -32,12 +32,3 @@ func New(ctx context.Context, databaseURL string) (*DB, error) {
 func (db *DB) Close() {
 	db.Pool.Close()
 }
-
-// Migrate runs database migrations.
-func (db *DB) Migrate(ctx context.Context, schema string) error {
-	_, err := db.Pool.Exec(ctx, schema)
-	if err != nil {
-		return fmt.Errorf("failed to run migration: %w", err)
-	}
-	return nil
-}
