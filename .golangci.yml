@@ -1,0 +1,47 @@
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gofmt
+    - goimports
+    - misspell
+    - unconvert
+    - unparam
+    - bodyclose
+    - noctx
+    - exportloopref
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment  # Too noisy for this project
+  goimports:
+    local-prefixes: github.com/locplace/scanner
+  misspell:
+    locale: US
+
+issues:
+  exclude-rules:
+    # Allow unused parameters in interface implementations
+    - linters:
+        - unparam
+      text: "always receives"
+    # Test files can have unused parameters
+    - path: _test\.go
+      linters:
+        - unparam
+        - errcheck
+  max-issues-per-linter: 0
+  max-same-issues: 0
