@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"math"
+	"math/rand/v2"
 	"time"
 
 	"github.com/locplace/scanner/pkg/api"
@@ -114,11 +115,14 @@ func (w *Worker) Run(ctx context.Context) {
 		if len(domains) == 0 {
 			// Empty queue is not an error, reset backoff
 			w.resetErrors()
-			log.Printf("[Worker %d] No domains available, waiting...", w.ID)
+			// Add jitter (0.5x to 1.5x) to avoid thundering herd
+			jitter := 0.5 + rand.Float64()
+			delay := time.Duration(float64(w.Config.EmptyQueueDelay) * jitter)
+			log.Printf("[Worker %d] No domains available, waiting %s...", w.ID, delay.Round(time.Second))
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(w.Config.EmptyQueueDelay):
+			case <-time.After(delay):
 			}
 			continue
 		}
