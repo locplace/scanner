@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, mount } from 'svelte';
 	import maplibregl from 'maplibre-gl';
+	import MapPopup from '$lib/components/MapPopup.svelte';
 
 	let mapContainer: HTMLDivElement;
 	let map: maplibregl.Map;
@@ -66,19 +67,23 @@
 				const props = feature.properties;
 				const coords = (feature.geometry as GeoJSON.Point).coordinates;
 
-				const html = `
-					<div class="popup-title">${props.fqdn}</div>
-					<div class="popup-domain">${props.root_domain}</div>
-					<div class="popup-coords">
-						${coords[1].toFixed(6)}, ${coords[0].toFixed(6)}<br>
-						Altitude: ${props.altitude_m}m
-					</div>
-					<div class="popup-raw">${props.raw_record}</div>
-				`;
+				// Use Svelte component for safe HTML rendering (prevents XSS)
+				const container = document.createElement('div');
+				mount(MapPopup, {
+					target: container,
+					props: {
+						fqdn: props.fqdn,
+						rootDomain: props.root_domain,
+						latitude: coords[1],
+						longitude: coords[0],
+						altitudeM: props.altitude_m,
+						rawRecord: props.raw_record
+					}
+				});
 
 				new maplibregl.Popup()
 					.setLngLat(coords as [number, number])
-					.setHTML(html)
+					.setDOMContent(container)
 					.addTo(map);
 			});
 
