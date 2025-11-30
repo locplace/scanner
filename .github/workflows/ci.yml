@@ -8,6 +8,7 @@ on:
 
 env:
   GO_VERSION: "1.25"
+  NODE_VERSION: "22"
 
 jobs:
   lint:
@@ -16,6 +17,17 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        run: npm ci && npm run build
+        working-directory: frontend
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -37,6 +49,17 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        run: npm ci && npm run build
+        working-directory: frontend
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -64,6 +87,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        run: npm ci && npm run build
+        working-directory: frontend
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -72,8 +106,8 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Build coordinator
-        run: CGO_ENABLED=0 go build -o coordinator ./cmd/coordinator
+      - name: Build server
+        run: CGO_ENABLED=0 go build -o server ./cmd/coordinator
 
       - name: Build scanner
         run: CGO_ENABLED=0 go build -o scanner ./cmd/scanner
@@ -83,6 +117,6 @@ jobs:
         with:
           name: binaries
           path: |
-            coordinator
+            server
             scanner
           retention-days: 7
