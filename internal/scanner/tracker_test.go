@@ -165,33 +165,33 @@ func TestDomainTracker_Concurrent(t *testing.T) {
 
 	// Concurrent adds
 	for i := 0; i < numGoroutines; i++ {
-		go func(id int) {
+		go func() {
 			defer wg.Done()
 			for j := 0; j < opsPerGoroutine; j++ {
 				tracker.Add("domain.com")
 			}
-		}(i)
+		}()
 	}
 
 	// Concurrent removes
 	for i := 0; i < numGoroutines; i++ {
-		go func(id int) {
+		go func() {
 			defer wg.Done()
 			for j := 0; j < opsPerGoroutine; j++ {
 				tracker.Remove("domain.com")
 			}
-		}(i)
+		}()
 	}
 
 	// Concurrent reads
 	for i := 0; i < numGoroutines; i++ {
-		go func(id int) {
+		go func() {
 			defer wg.Done()
 			for j := 0; j < opsPerGoroutine; j++ {
 				_ = tracker.Count()
 				_ = tracker.List()
 			}
-		}(i)
+		}()
 	}
 
 	wg.Wait()

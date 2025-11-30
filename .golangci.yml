@@ -7,40 +7,42 @@ run:
 linters:
   enable:
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
     - unused
-    - gofmt
-    - goimports
     - misspell
     - unconvert
     - unparam
     - bodyclose
     - noctx
-    - copyloopvar  # Replacement for deprecated exportloopref
+    - copyloopvar
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/locplace/scanner
 
 linters-settings:
   errcheck:
-    check-type-assertions: false  # Type assertions with ok pattern are intentional
-    check-blank: false  # Allow _ = expr for intentionally ignored errors
+    check-type-assertions: false
+    check-blank: false
   govet:
     enable-all: true
     disable:
-      - fieldalignment  # Too noisy for this project
-  goimports:
-    local-prefixes: github.com/locplace/scanner
+      - fieldalignment
   misspell:
     locale: US
 
 issues:
   exclude-rules:
-    # Allow unused parameters in interface implementations
     - linters:
         - unparam
       text: "always receives"
-    # Test files can have unused parameters
     - path: _test\.go
       linters:
         - unparam

@@ -48,7 +48,7 @@ func TestHashToken(t *testing.T) {
 
 			// Hash should be hex string
 			for _, c := range hash {
-				if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+				if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 					t.Errorf("hash contains non-hex character: %c", c)
 				}
 			}
@@ -90,7 +90,7 @@ func TestGenerateToken(t *testing.T) {
 
 	// Token should be hex string
 	for _, c := range token {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			t.Errorf("token contains non-hex character: %c", c)
 		}
 	}

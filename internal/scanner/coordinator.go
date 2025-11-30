@@ -54,7 +54,7 @@ func (c *CoordinatorClient) GetJobs(ctx context.Context, count int) ([]string, e
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // Close error not actionable
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body) //nolint:errcheck // Best effort to get error details
@@ -92,7 +92,7 @@ func (c *CoordinatorClient) Heartbeat(ctx context.Context, activeDomains []strin
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // Close error not actionable
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body) //nolint:errcheck // Best effort to get error details
@@ -121,7 +121,7 @@ func (c *CoordinatorClient) SubmitResults(ctx context.Context, results []api.Dom
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // Close error not actionable
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body) //nolint:errcheck // Best effort to get error details

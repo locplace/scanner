@@ -36,7 +36,7 @@ func Handler() http.Handler {
 			fileServer.ServeHTTP(w, r)
 			return
 		}
-		f.Close()
+		f.Close() //nolint:errcheck // Close error not actionable
 
 		fileServer.ServeHTTP(w, r)
 	})

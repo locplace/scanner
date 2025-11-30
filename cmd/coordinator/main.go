@@ -170,7 +170,7 @@ func runMigrations(databaseURL string) error {
 	if err != nil {
 		return err
 	}
-	defer m.Close()
+	defer m.Close() //nolint:errcheck // Close error not actionable
 
 	// Run migrations
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
