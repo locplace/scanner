@@ -38,7 +38,8 @@ func (db *DB) GetActiveScansForClient(ctx context.Context, clientID string) ([]s
 
 // ReleaseStaleScans releases scans that are stale. A scan is stale if:
 // - It has been assigned longer than jobTimeout (scanner probably crashed mid-job), OR
-// - Its client hasn't heartbeated in heartbeatTimeout (scanner is dead)
+// - Its client hasn't heartbeated in heartbeatTimeout (scanner is dead), OR
+// - Its session_id doesn't match the client's current session_id (scanner restarted)
 func (db *DB) ReleaseStaleScans(ctx context.Context, jobTimeout, heartbeatTimeout time.Duration) (int, error) {
 	tag, err := db.Pool.Exec(ctx, `
 		DELETE FROM active_scans s
@@ -47,6 +48,11 @@ func (db *DB) ReleaseStaleScans(ctx context.Context, jobTimeout, heartbeatTimeou
 			SELECT 1 FROM scanner_clients c
 			WHERE c.id = s.client_id
 			AND (c.last_heartbeat IS NULL OR c.last_heartbeat < NOW() - $2::interval)
+		)
+		OR EXISTS (
+			SELECT 1 FROM scanner_clients c
+			WHERE c.id = s.client_id
+			AND c.session_id != s.session_id
 		)
 	`, jobTimeout.String(), heartbeatTimeout.String())
 	if err != nil {

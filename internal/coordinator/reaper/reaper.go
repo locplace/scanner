@@ -26,22 +26,28 @@ func (r *Reaper) Run(ctx context.Context) {
 	log.Printf("Reaper started: interval=%s, job_timeout=%s, heartbeat_timeout=%s",
 		r.Interval, r.JobTimeout, r.HeartbeatTimeout)
 
+	// Run immediately on startup, then on each tick
 	for {
+		r.runOnce(ctx)
+
 		select {
 		case <-ctx.Done():
 			log.Println("Reaper stopped")
 			return
 		case <-ticker.C:
-			metrics.ReaperRunsTotal.Inc()
-			released, err := r.DB.ReleaseStaleScans(ctx, r.JobTimeout, r.HeartbeatTimeout)
-			if err != nil {
-				log.Printf("Reaper error: %v", err)
-				continue
-			}
-			if released > 0 {
-				metrics.ReaperDomainsReleasedTotal.Add(float64(released))
-				log.Printf("Reaper released %d stale scans", released)
-			}
 		}
+	}
+}
+
+func (r *Reaper) runOnce(ctx context.Context) {
+	metrics.ReaperRunsTotal.Inc()
+	released, err := r.DB.ReleaseStaleScans(ctx, r.JobTimeout, r.HeartbeatTimeout)
+	if err != nil {
+		log.Printf("Reaper error: %v", err)
+		return
+	}
+	if released > 0 {
+		metrics.ReaperDomainsReleasedTotal.Add(float64(released))
+		log.Printf("Reaper released %d stale scans", released)
 	}
 }

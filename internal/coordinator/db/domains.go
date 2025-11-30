@@ -20,7 +20,8 @@ type RootDomain struct {
 // ordered by last_scanned_at (NULL first, then oldest).
 // If rescanInterval == 0, only returns never-scanned domains.
 // If rescanInterval > 0, also returns domains not scanned within that duration.
-func (db *DB) GetDomainsToScan(ctx context.Context, clientID string, count int, rescanInterval time.Duration) ([]string, error) {
+// The sessionID is stored with the active scan assignment to detect orphaned jobs.
+func (db *DB) GetDomainsToScan(ctx context.Context, clientID, sessionID string, count int, rescanInterval time.Duration) ([]string, error) {
 	// Use a transaction to atomically select and assign domains
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
@@ -78,12 +79,12 @@ func (db *DB) GetDomainsToScan(ctx context.Context, clientID string, count int, 
 		return nil, err
 	}
 
-	// Insert into active_scans
+	// Insert into active_scans with session_id
 	for _, domainID := range domainIDs {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO active_scans (root_domain_id, client_id)
-			VALUES ($1, $2)
-		`, domainID, clientID)
+			INSERT INTO active_scans (root_domain_id, client_id, session_id)
+			VALUES ($1, $2, $3)
+		`, domainID, clientID, sessionID)
 		if err != nil {
 			return nil, err
 		}

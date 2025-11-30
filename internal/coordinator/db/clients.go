@@ -136,11 +136,19 @@ func (db *DB) DeleteClient(ctx context.Context, id string) error {
 	return nil
 }
 
-// UpdateHeartbeat updates the client's last_heartbeat timestamp.
-func (db *DB) UpdateHeartbeat(ctx context.Context, clientID string) error {
+// UpdateHeartbeat updates the client's last_heartbeat timestamp and session_id.
+func (db *DB) UpdateHeartbeat(ctx context.Context, clientID, sessionID string) error {
 	_, err := db.Pool.Exec(ctx, `
-		UPDATE scanner_clients SET last_heartbeat = NOW() WHERE id = $1
-	`, clientID)
+		UPDATE scanner_clients SET last_heartbeat = NOW(), session_id = $2 WHERE id = $1
+	`, clientID, sessionID)
+	return err
+}
+
+// UpdateSessionID updates the client's session_id.
+func (db *DB) UpdateSessionID(ctx context.Context, clientID, sessionID string) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE scanner_clients SET session_id = $2 WHERE id = $1
+	`, clientID, sessionID)
 	return err
 }
 

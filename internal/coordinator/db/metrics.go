@@ -15,8 +15,8 @@ type MetricsSnapshot struct {
 	SubdomainsTotal   int64
 
 	// LOC stats
-	LOCRecordsTotal  int
-	DomainsWithLOC   int
+	LOCRecordsTotal int
+	DomainsWithLOC  int
 
 	// Scanner stats
 	ScannersTotal  int

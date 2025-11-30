@@ -75,7 +75,8 @@ type ListClientsResponse struct {
 
 // GetJobsRequest is the request body for POST /api/scanner/jobs.
 type GetJobsRequest struct {
-	Count int `json:"count"`
+	Count     int    `json:"count"`
+	SessionID string `json:"session_id"`
 }
 
 // DomainJob represents a domain assignment.
@@ -91,6 +92,7 @@ type GetJobsResponse struct {
 // HeartbeatRequest is the request body for POST /api/scanner/heartbeat.
 type HeartbeatRequest struct {
 	ActiveDomains []string `json:"active_domains"`
+	SessionID     string   `json:"session_id"`
 }
 
 // HeartbeatResponse is the response for POST /api/scanner/heartbeat.

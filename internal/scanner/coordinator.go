@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/locplace/scanner/pkg/api"
 )
 
@@ -16,14 +18,17 @@ import (
 type CoordinatorClient struct {
 	BaseURL    string
 	Token      string
+	SessionID  string // Unique ID for this scanner session (generated on startup)
 	HTTPClient *http.Client
 }
 
 // NewCoordinatorClient creates a new coordinator API client.
+// A new session ID is generated to track this scanner instance.
 func NewCoordinatorClient(baseURL, token string) *CoordinatorClient {
 	return &CoordinatorClient{
-		BaseURL: baseURL,
-		Token:   token,
+		BaseURL:   baseURL,
+		Token:     token,
+		SessionID: uuid.New().String(),
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -32,7 +37,7 @@ func NewCoordinatorClient(baseURL, token string) *CoordinatorClient {
 
 // GetJobs requests domains to scan from the coordinator.
 func (c *CoordinatorClient) GetJobs(ctx context.Context, count int) ([]string, error) {
-	req := api.GetJobsRequest{Count: count}
+	req := api.GetJobsRequest{Count: count, SessionID: c.SessionID}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
@@ -70,7 +75,7 @@ func (c *CoordinatorClient) GetJobs(ctx context.Context, count int) ([]string, e
 
 // Heartbeat sends a keepalive signal to the coordinator.
 func (c *CoordinatorClient) Heartbeat(ctx context.Context, activeDomains []string) error {
-	req := api.HeartbeatRequest{ActiveDomains: activeDomains}
+	req := api.HeartbeatRequest{ActiveDomains: activeDomains, SessionID: c.SessionID}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return err

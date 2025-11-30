@@ -50,6 +50,7 @@ func New(config Config) *Scanner {
 // Run starts the scanner. It blocks until the context is canceled.
 func (s *Scanner) Run(ctx context.Context) error {
 	log.Printf("Starting scanner with %d workers", s.config.WorkerCount)
+	log.Printf("Session ID: %s", s.coordinator.SessionID)
 	log.Printf("Coordinator: %s", s.config.CoordinatorURL)
 	log.Printf("Batch size: %d, Heartbeat interval: %s", s.config.BatchSize, s.config.HeartbeatInterval)
 

@@ -38,7 +38,13 @@ func (h *ScannerHandlers) GetJobs(w http.ResponseWriter, r *http.Request) {
 		req.Count = 100 // Max batch size
 	}
 
-	domains, err := h.DB.GetDomainsToScan(r.Context(), client.ID, req.Count, h.RescanInterval)
+	// Update client's session_id
+	if err := h.DB.UpdateSessionID(r.Context(), client.ID, req.SessionID); err != nil {
+		writeError(w, "failed to update session", http.StatusInternalServerError)
+		return
+	}
+
+	domains, err := h.DB.GetDomainsToScan(r.Context(), client.ID, req.SessionID, req.Count, h.RescanInterval)
 	if err != nil {
 		writeError(w, "failed to get domains", http.StatusInternalServerError)
 		return
@@ -68,7 +74,7 @@ func (h *ScannerHandlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.DB.UpdateHeartbeat(r.Context(), client.ID); err != nil {
+	if err := h.DB.UpdateHeartbeat(r.Context(), client.ID, req.SessionID); err != nil {
 		writeError(w, "failed to update heartbeat", http.StatusInternalServerError)
 		return
 	}

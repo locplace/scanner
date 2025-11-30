@@ -35,7 +35,7 @@ func TestWriteJSON(t *testing.T) {
 		{
 			name:   "complex response",
 			status: http.StatusOK,
-			data: api.AddDomainsResponse{
+			data: api.AddDomainsToSetResponse{
 				Inserted:   5,
 				Duplicates: 2,
 			},
@@ -270,7 +270,7 @@ func TestAddDomainsRequest_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var req api.AddDomainsRequest
+			var req api.AddDomainsToSetRequest
 			err := json.NewDecoder(strings.NewReader(tt.body)).Decode(&req)
 
 			if tt.wantErr && err == nil {
