@@ -24,7 +24,7 @@ func DefaultConfig() Config {
 		CoordinatorURL:    "http://localhost:8080",
 		Token:             "",
 		WorkerCount:       4,
-		BatchSize:         3,
+		BatchSize:         1,
 		HeartbeatInterval: 30 * time.Second,
 		SubfinderConfig:   DefaultSubfinderConfig(),
 		DNSConfig:         DefaultDNSConfig(),
