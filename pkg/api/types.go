@@ -144,6 +144,20 @@ type PublicLOCRecord struct {
 	LastSeenAt  time.Time `json:"last_seen_at"`
 }
 
+// AggregatedLocation represents multiple LOC records at the same coordinates.
+// Used for GeoJSON export to avoid supercluster issues with identical coordinates.
+type AggregatedLocation struct {
+	FQDNs       []string  `json:"fqdns"`
+	RootDomains []string  `json:"root_domains"`
+	RawRecord   string    `json:"raw_record"`
+	Latitude    float64   `json:"latitude"`
+	Longitude   float64   `json:"longitude"`
+	AltitudeM   float64   `json:"altitude_m"`
+	Count       int       `json:"count"`
+	FirstSeenAt time.Time `json:"first_seen_at"`
+	LastSeenAt  time.Time `json:"last_seen_at"`
+}
+
 // ListRecordsResponse is the response for GET /api/public/records.
 type ListRecordsResponse struct {
 	Records []PublicLOCRecord `json:"records"`

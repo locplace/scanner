@@ -45,32 +45,31 @@ func (h *PublicHandlers) ListRecords(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetRecordsGeoJSON handles GET /api/public/records.geojson.
-// Returns all LOC records as a GeoJSON FeatureCollection.
+// Returns LOC records aggregated by location as a GeoJSON FeatureCollection.
+// Multiple FQDNs at the same coordinates are combined into a single feature.
 func (h *PublicHandlers) GetRecordsGeoJSON(w http.ResponseWriter, r *http.Request) {
-	records, err := h.DB.GetAllLOCRecordsForGeoJSON(r.Context())
+	locations, err := h.DB.GetAggregatedLocationsForGeoJSON(r.Context())
 	if err != nil {
 		writeError(w, "failed to get records", http.StatusInternalServerError)
 		return
 	}
 
-	features := make([]api.GeoJSONFeature, 0, len(records))
-	for _, rec := range records {
+	features := make([]api.GeoJSONFeature, 0, len(locations))
+	for _, loc := range locations {
 		feature := api.GeoJSONFeature{
 			Type: "Feature",
 			Geometry: api.GeoJSONPoint{
 				Type:        "Point",
-				Coordinates: []float64{rec.Longitude, rec.Latitude, rec.AltitudeM},
+				Coordinates: []float64{loc.Longitude, loc.Latitude},
 			},
 			Properties: map[string]any{
-				"fqdn":         rec.FQDN,
-				"root_domain":  rec.RootDomain,
-				"raw_record":   rec.RawRecord,
-				"altitude_m":   rec.AltitudeM,
-				"size_m":       rec.SizeM,
-				"horiz_prec_m": rec.HorizPrecM,
-				"vert_prec_m":  rec.VertPrecM,
-				"first_seen":   rec.FirstSeenAt,
-				"last_seen":    rec.LastSeenAt,
+				"fqdns":        loc.FQDNs,
+				"root_domains": loc.RootDomains,
+				"raw_record":   loc.RawRecord,
+				"altitude_m":   loc.AltitudeM,
+				"count":        loc.Count,
+				"first_seen":   loc.FirstSeenAt,
+				"last_seen":    loc.LastSeenAt,
 			},
 		}
 		features = append(features, feature)

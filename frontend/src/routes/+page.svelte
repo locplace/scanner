@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, mount } from 'svelte';
-	import maplibregl from 'maplibre-gl';
+	import maplibregl, { type GeoJSONSource } from 'maplibre-gl';
 	import MapPopup from '$lib/components/MapPopup.svelte';
 
 	let mapContainer: HTMLDivElement;
@@ -10,9 +10,6 @@
 	const PROTOMAPS_API_KEY = import.meta.env.VITE_PROTOMAPS_API_KEY || 'YOUR_API_KEY_HERE';
 
 	onMount(() => {
-		// Use Protomaps hosted Style JSON - the simplest approach
-		// Available themes: light, dark, white, black, grayscale
-		// Available languages: en, de, fr, es, etc.
 		const styleUrl = `https://api.protomaps.com/styles/v5/light/en.json?key=${PROTOMAPS_API_KEY}`;
 
 		map = new maplibregl.Map({
@@ -40,16 +37,50 @@
 
 			const geojson = await response.json();
 
+			// Add source with clustering for geographically nearby points
 			map.addSource('loc-records', {
 				type: 'geojson',
-				data: geojson
+				data: geojson,
+				cluster: true,
+				clusterMaxZoom: 17,
+				clusterRadius: 40
 			});
 
-			// Add circle layer for points
+			// Cluster circles (for geographically nearby aggregated locations)
 			map.addLayer({
-				id: 'loc-points',
+				id: 'clusters',
 				type: 'circle',
 				source: 'loc-records',
+				filter: ['has', 'point_count'],
+				paint: {
+					'circle-color': '#c0392b',
+					'circle-radius': ['step', ['get', 'point_count'], 18, 5, 24, 10, 30],
+					'circle-stroke-width': 2,
+					'circle-stroke-color': '#fff'
+				}
+			});
+
+			// Cluster count labels
+			map.addLayer({
+				id: 'cluster-count',
+				type: 'symbol',
+				source: 'loc-records',
+				filter: ['has', 'point_count'],
+				layout: {
+					'text-field': ['get', 'point_count_abbreviated'],
+					'text-size': 12
+				},
+				paint: {
+					'text-color': '#fff'
+				}
+			});
+
+			// Unclustered points (individual aggregated locations)
+			map.addLayer({
+				id: 'unclustered-point',
+				type: 'circle',
+				source: 'loc-records',
+				filter: ['!', ['has', 'point_count']],
 				paint: {
 					'circle-radius': 8,
 					'circle-color': '#e74c3c',
@@ -59,25 +90,87 @@
 				}
 			});
 
-			// Add click handler for popups
-			map.on('click', 'loc-points', (e) => {
+			// Click handler for supercluster clusters
+			map.on('click', 'clusters', async (e) => {
+				if (!e.features?.length) return;
+
+				const feature = e.features[0];
+				const clusterId = feature.properties?.cluster_id;
+				const coords = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
+				const source = map.getSource('loc-records') as GeoJSONSource;
+
+				// Get the zoom level needed to expand this cluster
+				const expansionZoom = await source.getClusterExpansionZoom(clusterId);
+
+				// If we can zoom in more, do that
+				if (expansionZoom <= 17 && map.getZoom() < expansionZoom) {
+					map.easeTo({ center: coords, zoom: expansionZoom });
+					return;
+				}
+
+				// Otherwise show popup with all FQDNs from all locations in the cluster
+				const leaves = await source.getClusterLeaves(clusterId, 100, 0);
+				if (leaves.length === 0) return;
+
+				// Aggregate all FQDNs from all locations
+				const allFqdns: string[] = [];
+				const allRootDomains = new Set<string>();
+				let rawRecord = '';
+				let altitudeM = 0;
+
+				for (const leaf of leaves) {
+					const props = leaf.properties;
+					// Parse fqdns - it comes as JSON string from MapLibre
+					const fqdns = typeof props?.fqdns === 'string' ? JSON.parse(props.fqdns) : props?.fqdns || [];
+					const rootDomains = typeof props?.root_domains === 'string' ? JSON.parse(props.root_domains) : props?.root_domains || [];
+
+					allFqdns.push(...fqdns);
+					rootDomains.forEach((d: string) => allRootDomains.add(d));
+
+					if (!rawRecord && props?.raw_record) {
+						rawRecord = props.raw_record;
+						altitudeM = props.altitude_m || 0;
+					}
+				}
+
+				const container = document.createElement('div');
+				mount(MapPopup, {
+					target: container,
+					props: {
+						fqdns: allFqdns,
+						rootDomains: Array.from(allRootDomains),
+						latitude: coords[1],
+						longitude: coords[0],
+						altitudeM,
+						rawRecord
+					}
+				});
+
+				new maplibregl.Popup().setLngLat(coords).setDOMContent(container).addTo(map);
+			});
+
+			// Click handler for unclustered points (individual aggregated locations)
+			map.on('click', 'unclustered-point', (e) => {
 				if (!e.features?.length) return;
 
 				const feature = e.features[0];
 				const props = feature.properties;
 				const coords = (feature.geometry as GeoJSON.Point).coordinates;
 
-				// Use Svelte component for safe HTML rendering (prevents XSS)
+				// Parse arrays - they come as JSON strings from MapLibre
+				const fqdns = typeof props?.fqdns === 'string' ? JSON.parse(props.fqdns) : props?.fqdns || [];
+				const rootDomains = typeof props?.root_domains === 'string' ? JSON.parse(props.root_domains) : props?.root_domains || [];
+
 				const container = document.createElement('div');
 				mount(MapPopup, {
 					target: container,
 					props: {
-						fqdn: props.fqdn,
-						rootDomain: props.root_domain,
+						fqdns,
+						rootDomains,
 						latitude: coords[1],
 						longitude: coords[0],
-						altitudeM: props.altitude_m,
-						rawRecord: props.raw_record
+						altitudeM: props?.altitude_m || 0,
+						rawRecord: props?.raw_record || ''
 					}
 				});
 
@@ -87,14 +180,15 @@
 					.addTo(map);
 			});
 
-			// Change cursor on hover
-			map.on('mouseenter', 'loc-points', () => {
-				map.getCanvas().style.cursor = 'pointer';
-			});
-
-			map.on('mouseleave', 'loc-points', () => {
-				map.getCanvas().style.cursor = '';
-			});
+			// Change cursor on hover for both layers
+			for (const layer of ['clusters', 'unclustered-point']) {
+				map.on('mouseenter', layer, () => {
+					map.getCanvas().style.cursor = 'pointer';
+				});
+				map.on('mouseleave', layer, () => {
+					map.getCanvas().style.cursor = '';
+				});
+			}
 
 			// Fit to data bounds if we have records
 			if (geojson.features.length > 0) {

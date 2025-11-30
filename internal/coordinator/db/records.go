@@ -145,3 +145,40 @@ func (db *DB) GetAllLOCRecordsForGeoJSON(ctx context.Context) ([]api.PublicLOCRe
 
 	return records, rows.Err()
 }
+
+// GetAggregatedLocationsForGeoJSON returns LOC records aggregated by coordinates.
+// Multiple FQDNs at the same location are combined into a single feature.
+func (db *DB) GetAggregatedLocationsForGeoJSON(ctx context.Context) ([]api.AggregatedLocation, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT
+			array_agg(l.fqdn ORDER BY l.fqdn) as fqdns,
+			array_agg(DISTINCT rd.domain ORDER BY rd.domain) as root_domains,
+			l.raw_record,
+			l.latitude,
+			l.longitude,
+			l.altitude_m,
+			COUNT(*) as count,
+			MIN(l.first_seen_at) as first_seen_at,
+			MAX(l.last_seen_at) as last_seen_at
+		FROM loc_records l
+		JOIN root_domains rd ON rd.id = l.root_domain_id
+		GROUP BY l.latitude, l.longitude, l.altitude_m, l.raw_record
+		ORDER BY MAX(l.last_seen_at) DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var locations []api.AggregatedLocation
+	for rows.Next() {
+		var loc api.AggregatedLocation
+		if err := rows.Scan(&loc.FQDNs, &loc.RootDomains, &loc.RawRecord, &loc.Latitude, &loc.Longitude,
+			&loc.AltitudeM, &loc.Count, &loc.FirstSeenAt, &loc.LastSeenAt); err != nil {
+			return nil, err
+		}
+		locations = append(locations, loc)
+	}
+
+	return locations, rows.Err()
+}
