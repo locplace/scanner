@@ -57,6 +57,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            VITE_PROTOMAPS_API_KEY=${{ secrets.PROTOMAPS_API_KEY }}
+          
 
   build-scanner:
     name: Build Scanner
