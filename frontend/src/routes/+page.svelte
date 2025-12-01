@@ -43,7 +43,9 @@
 				data: geojson,
 				cluster: true,
 				clusterMaxZoom: 17,
-				clusterRadius: 40
+				clusterRadius: 40,
+				generateId: true, // Stable IDs for proper feature tracking
+				tolerance: 0 // Don't simplify points
 			});
 
 			// Cluster circles (for geographically nearby aggregated locations)
@@ -198,6 +200,11 @@
 				}
 				map.fitBounds(bounds, { padding: 50, maxZoom: 10 });
 			}
+
+			// Force repaint after map becomes idle to ensure all points render
+			map.once('idle', () => {
+				map.triggerRepaint();
+			});
 		} catch (error) {
 			console.error('Error loading LOC records:', error);
 		}
