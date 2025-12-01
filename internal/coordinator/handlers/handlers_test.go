@@ -33,13 +33,12 @@ func TestWriteJSON(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:   "complex response",
+			name:   "submit batch response",
 			status: http.StatusOK,
-			data: api.AddDomainsToSetResponse{
-				Inserted:   5,
-				Duplicates: 2,
+			data: api.SubmitBatchResponse{
+				Accepted: 5,
 			},
-			wantBody:   `{"inserted":5,"duplicates":2}`,
+			wantBody:   `{"accepted":5}`,
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -50,15 +49,13 @@ func TestWriteJSON(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:   "response with array",
+			name:   "batch response with domains",
 			status: http.StatusOK,
-			data: api.GetJobsResponse{
-				Domains: []api.DomainJob{
-					{Domain: "example.com"},
-					{Domain: "test.org"},
-				},
+			data: api.GetBatchResponse{
+				BatchID: 123,
+				Domains: []string{"example.com", "test.org"},
 			},
-			wantBody:   `{"domains":[{"domain":"example.com"},{"domain":"test.org"}]}`,
+			wantBody:   `{"batch_id":123,"domains":["example.com","test.org"]}`,
 			wantStatus: http.StatusOK,
 		},
 	}
@@ -235,54 +232,6 @@ func TestParseIntParam(t *testing.T) {
 	}
 }
 
-func TestAddDomainsRequest_Validation(t *testing.T) {
-	tests := []struct {
-		name    string
-		body    string
-		wantErr bool
-	}{
-		{
-			name:    "valid request with domains",
-			body:    `{"domains":["example.com","test.org"]}`,
-			wantErr: false,
-		},
-		{
-			name:    "empty domains array",
-			body:    `{"domains":[]}`,
-			wantErr: false, // This is valid JSON, validation happens in handler
-		},
-		{
-			name:    "invalid JSON",
-			body:    `{"domains":`,
-			wantErr: true,
-		},
-		{
-			name:    "missing domains field",
-			body:    `{}`,
-			wantErr: false, // This is valid JSON, just empty
-		},
-		{
-			name:    "wrong type for domains",
-			body:    `{"domains":"not an array"}`,
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var req api.AddDomainsToSetRequest
-			err := json.NewDecoder(strings.NewReader(tt.body)).Decode(&req)
-
-			if tt.wantErr && err == nil {
-				t.Error("expected error, got nil")
-			}
-			if !tt.wantErr && err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-		})
-	}
-}
-
 func TestRegisterClientRequest_Validation(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -321,47 +270,41 @@ func TestRegisterClientRequest_Validation(t *testing.T) {
 	}
 }
 
-func TestGetJobsRequest_Validation(t *testing.T) {
+func TestGetBatchRequest_Validation(t *testing.T) {
 	tests := []struct {
-		name      string
-		body      string
-		wantCount int
-		wantErr   bool
+		name          string
+		body          string
+		wantSessionID string
+		wantErr       bool
 	}{
 		{
-			name:      "valid request",
-			body:      `{"count":10}`,
-			wantCount: 10,
-			wantErr:   false,
+			name:          "valid request",
+			body:          `{"session_id":"abc123"}`,
+			wantSessionID: "abc123",
+			wantErr:       false,
 		},
 		{
-			name:      "zero count",
-			body:      `{"count":0}`,
-			wantCount: 0,
-			wantErr:   false,
+			name:          "empty session_id",
+			body:          `{"session_id":""}`,
+			wantSessionID: "",
+			wantErr:       false, // Handler normalizes this
 		},
 		{
-			name:      "negative count",
-			body:      `{"count":-5}`,
-			wantCount: -5,
-			wantErr:   false, // Handler normalizes this
-		},
-		{
-			name:      "missing count",
-			body:      `{}`,
-			wantCount: 0,
-			wantErr:   false,
+			name:          "missing session_id",
+			body:          `{}`,
+			wantSessionID: "",
+			wantErr:       false,
 		},
 		{
 			name:    "invalid JSON",
-			body:    `{count:10}`,
+			body:    `{session_id:10}`,
 			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var req api.GetJobsRequest
+			var req api.GetBatchRequest
 			err := json.NewDecoder(strings.NewReader(tt.body)).Decode(&req)
 
 			if tt.wantErr {
@@ -376,14 +319,14 @@ func TestGetJobsRequest_Validation(t *testing.T) {
 				return
 			}
 
-			if req.Count != tt.wantCount {
-				t.Errorf("Count = %d, want %d", req.Count, tt.wantCount)
+			if req.SessionID != tt.wantSessionID {
+				t.Errorf("SessionID = %q, want %q", req.SessionID, tt.wantSessionID)
 			}
 		})
 	}
 }
 
-func TestSubmitResultsRequest_Validation(t *testing.T) {
+func TestSubmitBatchRequest_Validation(t *testing.T) {
 	tests := []struct {
 		name    string
 		body    string
@@ -393,36 +336,36 @@ func TestSubmitResultsRequest_Validation(t *testing.T) {
 		{
 			name: "valid request with LOC records",
 			body: `{
-				"results": [{
-					"domain": "example.com",
-					"subdomains_scanned": 100,
-					"loc_records": [{
-						"fqdn": "example.com",
-						"raw_record": "52 22 23.000 N 4 53 32.000 E -2.00m 1m 10000m 10m",
-						"latitude": 52.373055,
-						"longitude": 4.892222,
-						"altitude_m": -2.0,
-						"size_m": 1.0,
-						"horiz_prec_m": 10000.0,
-						"vert_prec_m": 10.0
-					}]
+				"batch_id": 123,
+				"domains_checked": 100,
+				"loc_records": [{
+					"fqdn": "example.com",
+					"raw_record": "52 22 23.000 N 4 53 32.000 E -2.00m 1m 10000m 10m",
+					"latitude": 52.373055,
+					"longitude": 4.892222,
+					"altitude_m": -2.0,
+					"size_m": 1.0,
+					"horiz_prec_m": 10000.0,
+					"vert_prec_m": 10.0
 				}]
 			}`,
 			wantLen: 1,
 			wantErr: false,
 		},
 		{
-			name:    "empty results array",
-			body:    `{"results":[]}`,
+			name:    "empty loc_records array",
+			body:    `{"batch_id": 456, "domains_checked": 50, "loc_records":[]}`,
 			wantLen: 0,
 			wantErr: false,
 		},
 		{
-			name: "multiple results",
+			name: "multiple LOC records",
 			body: `{
-				"results": [
-					{"domain": "a.com", "subdomains_scanned": 10, "loc_records": []},
-					{"domain": "b.com", "subdomains_scanned": 20, "loc_records": []}
+				"batch_id": 789,
+				"domains_checked": 200,
+				"loc_records": [
+					{"fqdn": "a.com", "raw_record": "52 0 0 N 4 0 0 E 0m 1m 1m 1m", "latitude": 52.0, "longitude": 4.0},
+					{"fqdn": "b.com", "raw_record": "40 0 0 N 74 0 0 W 0m 1m 1m 1m", "latitude": 40.0, "longitude": -74.0}
 				]
 			}`,
 			wantLen: 2,
@@ -430,14 +373,14 @@ func TestSubmitResultsRequest_Validation(t *testing.T) {
 		},
 		{
 			name:    "invalid JSON",
-			body:    `{"results": [}`,
+			body:    `{"batch_id": 123, "loc_records": [}`,
 			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var req api.SubmitResultsRequest
+			var req api.SubmitBatchRequest
 			err := json.NewDecoder(strings.NewReader(tt.body)).Decode(&req)
 
 			if tt.wantErr {
@@ -452,97 +395,84 @@ func TestSubmitResultsRequest_Validation(t *testing.T) {
 				return
 			}
 
-			if len(req.Results) != tt.wantLen {
-				t.Errorf("len(Results) = %d, want %d", len(req.Results), tt.wantLen)
+			if len(req.LOCRecords) != tt.wantLen {
+				t.Errorf("len(LOCRecords) = %d, want %d", len(req.LOCRecords), tt.wantLen)
 			}
 		})
 	}
 }
 
-func TestLOCRecordDeduplication(t *testing.T) {
-	// Test the deduplication logic from SubmitResults
-	// Given a set of LOC records, simulate the deduplication
+func TestLOCRecord_Parsing(t *testing.T) {
+	// Test that LOC records parse correctly
 	tests := []struct {
-		name          string
-		domain        string
-		records       []api.LOCRecord
-		wantKeptCount int
-		wantKeptFQDNs []string
+		name     string
+		body     string
+		wantFQDN string
+		wantLat  float64
+		wantLong float64
+		wantErr  bool
 	}{
 		{
-			name:   "root domain record deduplicates matching subdomains",
-			domain: "example.com",
-			records: []api.LOCRecord{
-				{FQDN: "example.com", RawRecord: "52 0 0 N 4 0 0 E 0m 1m 1m 1m"},
-				{FQDN: "www.example.com", RawRecord: "52 0 0 N 4 0 0 E 0m 1m 1m 1m"},     // Same as root - skip
-				{FQDN: "mail.example.com", RawRecord: "52 0 0 N 4 0 0 E 0m 1m 1m 1m"},    // Same as root - skip
-				{FQDN: "unique.example.com", RawRecord: "40 0 0 N 74 0 0 W 0m 1m 1m 1m"}, // Different - keep
-			},
-			wantKeptCount: 2,
-			wantKeptFQDNs: []string{"example.com", "unique.example.com"},
+			name: "valid LOC record",
+			body: `{
+				"fqdn": "example.com",
+				"raw_record": "52 22 23.000 N 4 53 32.000 E -2.00m 1m 10000m 10m",
+				"latitude": 52.373055,
+				"longitude": 4.892222,
+				"altitude_m": -2.0,
+				"size_m": 1.0,
+				"horiz_prec_m": 10000.0,
+				"vert_prec_m": 10.0
+			}`,
+			wantFQDN: "example.com",
+			wantLat:  52.373055,
+			wantLong: 4.892222,
+			wantErr:  false,
 		},
 		{
-			name:   "no root domain record keeps all",
-			domain: "example.com",
-			records: []api.LOCRecord{
-				{FQDN: "www.example.com", RawRecord: "52 0 0 N 4 0 0 E 0m 1m 1m 1m"},
-				{FQDN: "mail.example.com", RawRecord: "52 0 0 N 4 0 0 E 0m 1m 1m 1m"},
-			},
-			wantKeptCount: 2,
-			wantKeptFQDNs: []string{"www.example.com", "mail.example.com"},
-		},
-		{
-			name:   "only root domain record",
-			domain: "example.com",
-			records: []api.LOCRecord{
-				{FQDN: "example.com", RawRecord: "52 0 0 N 4 0 0 E 0m 1m 1m 1m"},
-			},
-			wantKeptCount: 1,
-			wantKeptFQDNs: []string{"example.com"},
-		},
-		{
-			name:          "empty records",
-			domain:        "example.com",
-			records:       []api.LOCRecord{},
-			wantKeptCount: 0,
-			wantKeptFQDNs: []string{},
+			name: "negative longitude (West)",
+			body: `{
+				"fqdn": "nyc.example.com",
+				"raw_record": "40 42 46 N 74 0 22 W 0m 1m 1m 1m",
+				"latitude": 40.7128,
+				"longitude": -74.006,
+				"altitude_m": 0,
+				"size_m": 1.0,
+				"horiz_prec_m": 1.0,
+				"vert_prec_m": 1.0
+			}`,
+			wantFQDN: "nyc.example.com",
+			wantLat:  40.7128,
+			wantLong: -74.006,
+			wantErr:  false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Find root LOC record
-			var rootLOCRecord string
-			for _, loc := range tt.records {
-				if loc.FQDN == tt.domain {
-					rootLOCRecord = loc.RawRecord
-					break
+			var rec api.LOCRecord
+			err := json.NewDecoder(strings.NewReader(tt.body)).Decode(&rec)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
 				}
+				return
 			}
 
-			// Apply deduplication logic
-			var kept []api.LOCRecord
-			for _, loc := range tt.records {
-				if rootLOCRecord != "" && loc.FQDN != tt.domain && loc.RawRecord == rootLOCRecord {
-					continue // Skip
-				}
-				kept = append(kept, loc)
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
 			}
 
-			if len(kept) != tt.wantKeptCount {
-				t.Errorf("kept count = %d, want %d", len(kept), tt.wantKeptCount)
+			if rec.FQDN != tt.wantFQDN {
+				t.Errorf("FQDN = %q, want %q", rec.FQDN, tt.wantFQDN)
 			}
-
-			// Verify correct FQDNs are kept
-			keptFQDNs := make(map[string]bool)
-			for _, loc := range kept {
-				keptFQDNs[loc.FQDN] = true
+			if rec.Latitude != tt.wantLat {
+				t.Errorf("Latitude = %f, want %f", rec.Latitude, tt.wantLat)
 			}
-
-			for _, wantFQDN := range tt.wantKeptFQDNs {
-				if !keptFQDNs[wantFQDN] {
-					t.Errorf("expected FQDN %q to be kept, but it wasn't", wantFQDN)
-				}
+			if rec.Longitude != tt.wantLong {
+				t.Errorf("Longitude = %f, want %f", rec.Longitude, tt.wantLong)
 			}
 		})
 	}

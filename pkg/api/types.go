@@ -5,50 +5,6 @@ import "time"
 
 // --- Admin API Types ---
 
-// DomainSetInfo represents a domain set in API responses.
-type DomainSetInfo struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name"`
-	Source         string    `json:"source"`
-	CreatedAt      time.Time `json:"created_at"`
-	TotalDomains   int       `json:"total_domains"`
-	ScannedDomains int       `json:"scanned_domains"`
-}
-
-// CreateDomainSetRequest is the request body for POST /api/admin/domain-sets.
-type CreateDomainSetRequest struct {
-	Name   string `json:"name"`
-	Source string `json:"source"`
-}
-
-// CreateDomainSetResponse is the response for POST /api/admin/domain-sets.
-type CreateDomainSetResponse struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Source string `json:"source"`
-}
-
-// ListDomainSetsResponse is the response for GET /api/admin/domain-sets.
-type ListDomainSetsResponse struct {
-	Sets []DomainSetInfo `json:"sets"`
-}
-
-// AddDomainsToSetRequest is the request body for POST /api/admin/domain-sets/{id}/domains.
-type AddDomainsToSetRequest struct {
-	Domains []string `json:"domains"`
-}
-
-// AddDomainsToSetResponse is the response for POST /api/admin/domain-sets/{id}/domains.
-type AddDomainsToSetResponse struct {
-	Inserted   int `json:"inserted"`
-	Duplicates int `json:"duplicates"`
-}
-
-// BumpDomainSetResponse is the response for POST /api/admin/domain-sets/{id}/bump.
-type BumpDomainSetResponse struct {
-	Bumped int `json:"bumped"`
-}
-
 // RegisterClientRequest is the request body for POST /api/admin/clients.
 type RegisterClientRequest struct {
 	Name string `json:"name"`
@@ -67,7 +23,7 @@ type ClientInfo struct {
 	Name          string     `json:"name"`
 	CreatedAt     time.Time  `json:"created_at"`
 	LastHeartbeat *time.Time `json:"last_heartbeat,omitempty"`
-	ActiveDomains int        `json:"active_domains"`
+	ActiveBatches int        `json:"active_batches"`
 	IsAlive       bool       `json:"is_alive"`
 }
 
@@ -76,28 +32,33 @@ type ListClientsResponse struct {
 	Clients []ClientInfo `json:"clients"`
 }
 
+// DiscoverFilesResponse is the response for POST /api/admin/discover-files.
+type DiscoverFilesResponse struct {
+	FilesDiscovered int `json:"files_discovered"`
+}
+
+// ResetScanResponse is the response for POST /api/admin/reset-scan.
+type ResetScanResponse struct {
+	FilesReset int `json:"files_reset"`
+}
+
 // --- Scanner API Types ---
 
-// GetJobsRequest is the request body for POST /api/scanner/jobs.
-type GetJobsRequest struct {
-	Count     int    `json:"count"`
+// GetBatchRequest is the request body for POST /api/scanner/jobs.
+type GetBatchRequest struct {
 	SessionID string `json:"session_id"`
 }
 
-// DomainJob represents a domain assignment.
-type DomainJob struct {
-	Domain string `json:"domain"`
-}
-
-// GetJobsResponse is the response for POST /api/scanner/jobs.
-type GetJobsResponse struct {
-	Domains []DomainJob `json:"domains"`
+// GetBatchResponse is the response for POST /api/scanner/jobs.
+// Returns a batch of FQDNs to scan for LOC records.
+type GetBatchResponse struct {
+	BatchID int64    `json:"batch_id,omitempty"`
+	Domains []string `json:"domains"`
 }
 
 // HeartbeatRequest is the request body for POST /api/scanner/heartbeat.
 type HeartbeatRequest struct {
-	ActiveDomains []string `json:"active_domains"`
-	SessionID     string   `json:"session_id"`
+	SessionID string `json:"session_id"`
 }
 
 // HeartbeatResponse is the response for POST /api/scanner/heartbeat.
@@ -117,20 +78,15 @@ type LOCRecord struct {
 	VertPrecM  float64 `json:"vert_prec_m"`
 }
 
-// DomainResult represents scan results for a single domain.
-type DomainResult struct {
-	Domain            string      `json:"domain"`
-	SubdomainsScanned int         `json:"subdomains_scanned"`
-	LOCRecords        []LOCRecord `json:"loc_records"`
+// SubmitBatchRequest is the request body for POST /api/scanner/results.
+type SubmitBatchRequest struct {
+	BatchID        int64       `json:"batch_id"`
+	DomainsChecked int         `json:"domains_checked"`
+	LOCRecords     []LOCRecord `json:"loc_records"`
 }
 
-// SubmitResultsRequest is the request body for POST /api/scanner/results.
-type SubmitResultsRequest struct {
-	Results []DomainResult `json:"results"`
-}
-
-// SubmitResultsResponse is the response for POST /api/scanner/results.
-type SubmitResultsResponse struct {
+// SubmitBatchResponse is the response for POST /api/scanner/results.
+type SubmitBatchResponse struct {
 	Accepted int `json:"accepted"`
 }
 
@@ -173,16 +129,42 @@ type ListRecordsResponse struct {
 	Offset  int               `json:"offset"`
 }
 
+// DomainFileStats holds statistics for domain file processing.
+type DomainFileStats struct {
+	Total      int `json:"total"`
+	Pending    int `json:"pending"`
+	Processing int `json:"processing"`
+	Complete   int `json:"complete"`
+}
+
+// BatchQueueStats holds statistics for the batch queue.
+type BatchQueueStats struct {
+	Pending  int `json:"pending"`
+	InFlight int `json:"in_flight"`
+}
+
+// CurrentFileProgress holds progress info for the currently processing file.
+type CurrentFileProgress struct {
+	Filename         string  `json:"filename,omitempty"`
+	ProcessedLines   int64   `json:"processed_lines"`
+	BatchesCreated   int     `json:"batches_created"`
+	BatchesCompleted int     `json:"batches_completed"`
+	ProgressPct      float64 `json:"progress_pct"`
+}
+
 // StatsResponse is the response for GET /api/public/stats.
 type StatsResponse struct {
-	TotalRootDomains         int   `json:"total_root_domains"`
-	ScannedRootDomains       int   `json:"scanned_root_domains"`
-	PendingRootDomains       int   `json:"pending_root_domains"`
-	InProgressRootDomains    int   `json:"in_progress_root_domains"`
-	TotalSubdomainsScanned   int64 `json:"total_subdomains_scanned"`
-	ActiveScanners           int   `json:"active_scanners"`
-	TotalLOCRecords          int   `json:"total_loc_records"`
-	UniqueRootDomainsWithLOC int   `json:"unique_root_domains_with_loc"`
+	// LOC record stats
+	TotalLOCRecords          int `json:"total_loc_records"`
+	UniqueRootDomainsWithLOC int `json:"unique_root_domains_with_loc"`
+
+	// Scanner stats
+	ActiveScanners int `json:"active_scanners"`
+
+	// File-based scanning stats
+	DomainFiles DomainFileStats      `json:"domain_files"`
+	BatchQueue  BatchQueueStats      `json:"batch_queue"`
+	CurrentFile *CurrentFileProgress `json:"current_file,omitempty"`
 }
 
 // ErrorResponse is a standard error response.

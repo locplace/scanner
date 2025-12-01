@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/locplace/scanner/internal/coordinator/db"
+	"github.com/locplace/scanner/internal/coordinator/feeder"
 	"github.com/locplace/scanner/pkg/api"
 )
 
@@ -64,7 +65,7 @@ func (h *AdminHandlers) ListClients(w http.ResponseWriter, r *http.Request) {
 			Name:          c.Name,
 			CreatedAt:     c.CreatedAt,
 			LastHeartbeat: c.LastHeartbeat,
-			ActiveDomains: c.ActiveDomains,
+			ActiveBatches: c.ActiveBatches,
 			IsAlive:       isAlive,
 		})
 	}
@@ -89,148 +90,38 @@ func (h *AdminHandlers) DeleteClient(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// CreateDomainSet handles POST /api/admin/domain-sets.
-func (h *AdminHandlers) CreateDomainSet(w http.ResponseWriter, r *http.Request) {
-	var req api.CreateDomainSetRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if req.Name == "" {
-		writeError(w, "name is required", http.StatusBadRequest)
-		return
-	}
-	if req.Source == "" {
-		writeError(w, "source is required", http.StatusBadRequest)
-		return
-	}
-
-	ds, err := h.DB.CreateDomainSet(r.Context(), req.Name, req.Source)
+// DiscoverFiles handles POST /api/admin/discover-files.
+// Fetches the domain file list from GitHub and updates the database.
+func (h *AdminHandlers) DiscoverFiles(w http.ResponseWriter, r *http.Request) {
+	count, err := feeder.DiscoverAndInsertFiles(r.Context(), h.DB)
 	if err != nil {
-		writeError(w, "failed to create domain set", http.StatusInternalServerError)
+		writeError(w, "failed to discover files: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, api.CreateDomainSetResponse{
-		ID:     ds.ID,
-		Name:   ds.Name,
-		Source: ds.Source,
+	writeJSON(w, http.StatusOK, api.DiscoverFilesResponse{
+		FilesDiscovered: count,
 	})
 }
 
-// ListDomainSets handles GET /api/admin/domain-sets.
-func (h *AdminHandlers) ListDomainSets(w http.ResponseWriter, r *http.Request) {
-	sets, err := h.DB.ListDomainSets(r.Context())
+// ResetScan handles POST /api/admin/reset-scan.
+// Resets all files to pending status for a full re-scan.
+func (h *AdminHandlers) ResetScan(w http.ResponseWriter, r *http.Request) {
+	// First, get the count of files
+	fileStats, err := h.DB.GetDomainFileStats(r.Context())
 	if err != nil {
-		writeError(w, "failed to list domain sets", http.StatusInternalServerError)
+		writeError(w, "failed to get file stats", http.StatusInternalServerError)
 		return
 	}
 
-	resp := api.ListDomainSetsResponse{
-		Sets: make([]api.DomainSetInfo, 0, len(sets)),
-	}
-
-	for _, ds := range sets {
-		resp.Sets = append(resp.Sets, api.DomainSetInfo{
-			ID:             ds.ID,
-			Name:           ds.Name,
-			Source:         ds.Source,
-			CreatedAt:      ds.CreatedAt,
-			TotalDomains:   ds.TotalDomains,
-			ScannedDomains: ds.ScannedDomains,
-		})
-	}
-
-	writeJSON(w, http.StatusOK, resp)
-}
-
-// DeleteDomainSet handles DELETE /api/admin/domain-sets/{id}.
-func (h *AdminHandlers) DeleteDomainSet(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		writeError(w, "domain set id is required", http.StatusBadRequest)
+	// Reset all files
+	if err := h.DB.ResetAllFiles(r.Context()); err != nil {
+		writeError(w, "failed to reset files", http.StatusInternalServerError)
 		return
 	}
 
-	err := h.DB.DeleteDomainSet(r.Context(), id)
-	if err != nil {
-		writeError(w, "domain set not found", http.StatusNotFound)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// AddDomainsToSet handles POST /api/admin/domain-sets/{id}/domains.
-func (h *AdminHandlers) AddDomainsToSet(w http.ResponseWriter, r *http.Request) {
-	setID := chi.URLParam(r, "id")
-	if setID == "" {
-		writeError(w, "domain set id is required", http.StatusBadRequest)
-		return
-	}
-
-	var req api.AddDomainsToSetRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if len(req.Domains) == 0 {
-		writeError(w, "domains array is required", http.StatusBadRequest)
-		return
-	}
-
-	// Verify the set exists
-	set, err := h.DB.GetDomainSet(r.Context(), setID)
-	if err != nil {
-		writeError(w, "failed to get domain set", http.StatusInternalServerError)
-		return
-	}
-	if set == nil {
-		writeError(w, "domain set not found", http.StatusNotFound)
-		return
-	}
-
-	inserted, duplicates, err := h.DB.InsertDomainsToSet(r.Context(), setID, req.Domains)
-	if err != nil {
-		writeError(w, "failed to insert domains", http.StatusInternalServerError)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, api.AddDomainsToSetResponse{
-		Inserted:   inserted,
-		Duplicates: duplicates,
-	})
-}
-
-// BumpDomainSet handles POST /api/admin/domain-sets/{id}/bump.
-func (h *AdminHandlers) BumpDomainSet(w http.ResponseWriter, r *http.Request) {
-	setID := chi.URLParam(r, "id")
-	if setID == "" {
-		writeError(w, "domain set id is required", http.StatusBadRequest)
-		return
-	}
-
-	// Verify the set exists
-	set, err := h.DB.GetDomainSet(r.Context(), setID)
-	if err != nil {
-		writeError(w, "failed to get domain set", http.StatusInternalServerError)
-		return
-	}
-	if set == nil {
-		writeError(w, "domain set not found", http.StatusNotFound)
-		return
-	}
-
-	bumped, err := h.DB.BumpDomainSet(r.Context(), setID)
-	if err != nil {
-		writeError(w, "failed to bump domain set", http.StatusInternalServerError)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, api.BumpDomainSetResponse{
-		Bumped: bumped,
+	writeJSON(w, http.StatusOK, api.ResetScanResponse{
+		FilesReset: fileStats.Total,
 	})
 }
 

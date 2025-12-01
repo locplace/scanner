@@ -32,6 +32,7 @@ services:
       JOB_TIMEOUT: "10m"
       HEARTBEAT_TIMEOUT: "2m"
       REAPER_INTERVAL: "60s"
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     depends_on:
       postgres:
         condition: service_healthy

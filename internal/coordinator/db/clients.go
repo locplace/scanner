@@ -91,20 +91,20 @@ func (db *DB) GetClientByID(ctx context.Context, id string) (*ScannerClient, err
 	return &client, nil
 }
 
-// ClientWithStats represents a client with active domain count.
+// ClientWithStats represents a client with active batch count.
 type ClientWithStats struct {
 	ScannerClient
-	ActiveDomains int
+	ActiveBatches int
 }
 
-// ListClients returns all clients with their active domain counts.
+// ListClients returns all clients with their active batch counts.
 func (db *DB) ListClients(ctx context.Context) ([]ClientWithStats, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT
 			c.id, c.name, c.token_hash, c.created_at, c.last_heartbeat,
-			COUNT(s.root_domain_id) as active_domains
+			COUNT(b.id) as active_batches
 		FROM scanner_clients c
-		LEFT JOIN active_scans s ON s.client_id = c.id
+		LEFT JOIN scan_batches b ON b.scanner_id = c.id AND b.status = 'in_flight'
 		GROUP BY c.id
 		ORDER BY c.created_at
 	`)
@@ -116,7 +116,7 @@ func (db *DB) ListClients(ctx context.Context) ([]ClientWithStats, error) {
 	var clients []ClientWithStats
 	for rows.Next() {
 		var c ClientWithStats
-		if err := rows.Scan(&c.ID, &c.Name, &c.TokenHash, &c.CreatedAt, &c.LastHeartbeat, &c.ActiveDomains); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.TokenHash, &c.CreatedAt, &c.LastHeartbeat, &c.ActiveBatches); err != nil {
 			return nil, err
 		}
 		clients = append(clients, c)

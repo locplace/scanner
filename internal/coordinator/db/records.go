@@ -11,25 +11,25 @@ import (
 
 // StoredLOCRecord represents a LOC record in the database.
 type StoredLOCRecord struct {
-	ID           string
-	RootDomainID string
-	FQDN         string
-	RawRecord    string
-	Latitude     float64
-	Longitude    float64
-	AltitudeM    float64
-	SizeM        float64
-	HorizPrecM   float64
-	VertPrecM    float64
-	FirstSeenAt  time.Time
-	LastSeenAt   time.Time
+	ID          string
+	RootDomain  string
+	FQDN        string
+	RawRecord   string
+	Latitude    float64
+	Longitude   float64
+	AltitudeM   float64
+	SizeM       float64
+	HorizPrecM  float64
+	VertPrecM   float64
+	FirstSeenAt time.Time
+	LastSeenAt  time.Time
 }
 
 // UpsertLOCRecord inserts or updates a LOC record.
 // If the FQDN already exists, updates last_seen_at.
-func (db *DB) UpsertLOCRecord(ctx context.Context, rootDomainID string, rec api.LOCRecord) error {
+func (db *DB) UpsertLOCRecord(ctx context.Context, rootDomain string, rec api.LOCRecord) error {
 	_, err := db.Pool.Exec(ctx, `
-		INSERT INTO loc_records (root_domain_id, fqdn, raw_record, latitude, longitude, altitude_m, size_m, horiz_prec_m, vert_prec_m)
+		INSERT INTO loc_records (root_domain, fqdn, raw_record, latitude, longitude, altitude_m, size_m, horiz_prec_m, vert_prec_m)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (fqdn) DO UPDATE SET
 			raw_record = EXCLUDED.raw_record,
@@ -40,7 +40,7 @@ func (db *DB) UpsertLOCRecord(ctx context.Context, rootDomainID string, rec api.
 			horiz_prec_m = EXCLUDED.horiz_prec_m,
 			vert_prec_m = EXCLUDED.vert_prec_m,
 			last_seen_at = NOW()
-	`, rootDomainID, rec.FQDN, rec.RawRecord, rec.Latitude, rec.Longitude, rec.AltitudeM, rec.SizeM, rec.HorizPrecM, rec.VertPrecM)
+	`, rootDomain, rec.FQDN, rec.RawRecord, rec.Latitude, rec.Longitude, rec.AltitudeM, rec.SizeM, rec.HorizPrecM, rec.VertPrecM)
 	return err
 }
 
@@ -48,11 +48,11 @@ func (db *DB) UpsertLOCRecord(ctx context.Context, rootDomainID string, rec api.
 func (db *DB) ListLOCRecords(ctx context.Context, limit, offset int, domainFilter string) ([]api.PublicLOCRecord, int, error) {
 	// Count total
 	var total int
-	countQuery := `SELECT COUNT(*) FROM loc_records l JOIN root_domains rd ON rd.id = l.root_domain_id`
+	countQuery := `SELECT COUNT(*) FROM loc_records`
 	countArgs := []any{}
 
 	if domainFilter != "" {
-		countQuery += ` WHERE rd.domain = $1`
+		countQuery += ` WHERE root_domain = $1`
 		countArgs = append(countArgs, domainFilter)
 	}
 
@@ -65,23 +65,21 @@ func (db *DB) ListLOCRecords(ctx context.Context, limit, offset int, domainFilte
 	var err error
 	if domainFilter != "" {
 		rows, err = db.Pool.Query(ctx, `
-			SELECT l.fqdn, rd.domain, l.raw_record, l.latitude, l.longitude,
-			       l.altitude_m, l.size_m, l.horiz_prec_m, l.vert_prec_m,
-			       l.first_seen_at, l.last_seen_at
-			FROM loc_records l
-			JOIN root_domains rd ON rd.id = l.root_domain_id
-			WHERE rd.domain = $1
-			ORDER BY l.last_seen_at DESC
+			SELECT fqdn, root_domain, raw_record, latitude, longitude,
+			       altitude_m, size_m, horiz_prec_m, vert_prec_m,
+			       first_seen_at, last_seen_at
+			FROM loc_records
+			WHERE root_domain = $1
+			ORDER BY last_seen_at DESC
 			LIMIT $2 OFFSET $3
 		`, domainFilter, limit, offset)
 	} else {
 		rows, err = db.Pool.Query(ctx, `
-			SELECT l.fqdn, rd.domain, l.raw_record, l.latitude, l.longitude,
-			       l.altitude_m, l.size_m, l.horiz_prec_m, l.vert_prec_m,
-			       l.first_seen_at, l.last_seen_at
-			FROM loc_records l
-			JOIN root_domains rd ON rd.id = l.root_domain_id
-			ORDER BY l.last_seen_at DESC
+			SELECT fqdn, root_domain, raw_record, latitude, longitude,
+			       altitude_m, size_m, horiz_prec_m, vert_prec_m,
+			       first_seen_at, last_seen_at
+			FROM loc_records
+			ORDER BY last_seen_at DESC
 			LIMIT $1 OFFSET $2
 		`, limit, offset)
 	}
@@ -113,7 +111,7 @@ func (db *DB) CountLOCRecords(ctx context.Context) (int, error) {
 // CountUniqueRootDomainsWithLOC returns count of root domains that have at least one LOC record.
 func (db *DB) CountUniqueRootDomainsWithLOC(ctx context.Context) (int, error) {
 	var count int
-	err := db.Pool.QueryRow(ctx, `SELECT COUNT(DISTINCT root_domain_id) FROM loc_records`).Scan(&count)
+	err := db.Pool.QueryRow(ctx, `SELECT COUNT(DISTINCT root_domain) FROM loc_records`).Scan(&count)
 	return count, err
 }
 
@@ -121,12 +119,11 @@ func (db *DB) CountUniqueRootDomainsWithLOC(ctx context.Context) (int, error) {
 // Returns records without pagination for map rendering.
 func (db *DB) GetAllLOCRecordsForGeoJSON(ctx context.Context) ([]api.PublicLOCRecord, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT l.fqdn, rd.domain, l.raw_record, l.latitude, l.longitude,
-		       l.altitude_m, l.size_m, l.horiz_prec_m, l.vert_prec_m,
-		       l.first_seen_at, l.last_seen_at
-		FROM loc_records l
-		JOIN root_domains rd ON rd.id = l.root_domain_id
-		ORDER BY l.last_seen_at DESC
+		SELECT fqdn, root_domain, raw_record, latitude, longitude,
+		       altitude_m, size_m, horiz_prec_m, vert_prec_m,
+		       first_seen_at, last_seen_at
+		FROM loc_records
+		ORDER BY last_seen_at DESC
 	`)
 	if err != nil {
 		return nil, err
@@ -151,19 +148,18 @@ func (db *DB) GetAllLOCRecordsForGeoJSON(ctx context.Context) ([]api.PublicLOCRe
 func (db *DB) GetAggregatedLocationsForGeoJSON(ctx context.Context) ([]api.AggregatedLocation, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT
-			array_agg(l.fqdn ORDER BY l.fqdn) as fqdns,
-			array_agg(DISTINCT rd.domain ORDER BY rd.domain) as root_domains,
-			l.raw_record,
-			l.latitude,
-			l.longitude,
-			l.altitude_m,
+			array_agg(fqdn ORDER BY fqdn) as fqdns,
+			array_agg(DISTINCT root_domain ORDER BY root_domain) as root_domains,
+			raw_record,
+			latitude,
+			longitude,
+			altitude_m,
 			COUNT(*) as count,
-			MIN(l.first_seen_at) as first_seen_at,
-			MAX(l.last_seen_at) as last_seen_at
-		FROM loc_records l
-		JOIN root_domains rd ON rd.id = l.root_domain_id
-		GROUP BY l.latitude, l.longitude, l.altitude_m, l.raw_record
-		ORDER BY MAX(l.last_seen_at) DESC
+			MIN(first_seen_at) as first_seen_at,
+			MAX(last_seen_at) as last_seen_at
+		FROM loc_records
+		GROUP BY latitude, longitude, altitude_m, raw_record
+		ORDER BY MAX(last_seen_at) DESC
 	`)
 	if err != nil {
 		return nil, err

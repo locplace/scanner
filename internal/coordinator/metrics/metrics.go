@@ -16,17 +16,7 @@
 // These metrics increment on each event, regardless of whether it's a new or repeated
 // action. They track "how much work has been done" and are useful for rate calculations.
 //
-// Use rate(counter[5m]) to derive throughput metrics like "domains scanned per second".
-//
-// # Key Distinction
-//
-// With RESCAN_INTERVAL=0 (default, no rescans):
-//   - Gauges and counters will track similar values
-//   - rate(locplace_domains_scanned[5m]) ≈ rate(locplace_scan_completions_total[5m])
-//
-// With RESCAN_INTERVAL>0 (rescans enabled):
-//   - Gauges show unique coverage (won't increase on rescan of same domain)
-//   - Counters show actual work done (increase on every scan, including rescans)
+// Use rate(counter[5m]) to derive throughput metrics like "batches completed per second".
 package metrics
 
 import (
@@ -47,34 +37,40 @@ var (
 // ========================================
 
 var (
-	// DomainsTotal is the total number of root domains in the database.
-	DomainsTotal = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "locplace_domains_total",
-		Help: "Total number of root domains in the database (gauge, from DB).",
+	// DomainFilesTotal is the total number of domain files.
+	DomainFilesTotal = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "locplace_domain_files_total",
+		Help: "Total number of domain files in the database (gauge, from DB).",
 	})
 
-	// DomainsScanned is the number of domains scanned at least once.
-	DomainsScanned = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "locplace_domains_scanned",
-		Help: "Number of root domains scanned at least once (gauge, from DB). For scan rate, use rate(locplace_scan_completions_total[5m]) instead.",
+	// DomainFilesPending is the number of domain files pending processing.
+	DomainFilesPending = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "locplace_domain_files_pending",
+		Help: "Number of domain files waiting to be processed (gauge, from DB).",
 	})
 
-	// DomainsPending is the number of domains never scanned.
-	DomainsPending = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "locplace_domains_pending",
-		Help: "Number of root domains that have never been scanned (gauge, from DB).",
+	// DomainFilesProcessing is the number of domain files currently being processed.
+	DomainFilesProcessing = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "locplace_domain_files_processing",
+		Help: "Number of domain files currently being processed (gauge, from DB).",
 	})
 
-	// DomainsInProgress is the number of domains currently being scanned.
-	DomainsInProgress = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "locplace_domains_in_progress",
-		Help: "Number of root domains currently assigned to scanners (gauge, from DB).",
+	// DomainFilesComplete is the number of domain files that have been fully processed.
+	DomainFilesComplete = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "locplace_domain_files_complete",
+		Help: "Number of domain files that have been fully processed (gauge, from DB).",
 	})
 
-	// SubdomainsScannedTotal is the total subdomains/FQDNs checked across all scans.
-	SubdomainsScannedTotal = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "locplace_subdomains_scanned_total",
-		Help: "Total number of subdomains/FQDNs checked across all domain scans (gauge, sum from DB).",
+	// BatchesPending is the number of batches waiting to be claimed.
+	BatchesPending = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "locplace_batches_pending",
+		Help: "Number of batches waiting to be claimed by scanners (gauge, from DB).",
+	})
+
+	// BatchesInFlight is the number of batches currently being processed by scanners.
+	BatchesInFlight = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "locplace_batches_in_flight",
+		Help: "Number of batches currently assigned to scanners (gauge, from DB).",
 	})
 
 	// LOCRecordsTotal is the number of unique LOC records in the database.
@@ -99,12 +95,6 @@ var (
 	ScannersActive = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "locplace_scanners_active",
 		Help: "Number of scanner clients with a heartbeat within the timeout period (gauge, from DB).",
-	})
-
-	// DomainSetsTotal is the number of domain sets.
-	DomainSetsTotal = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "locplace_domain_sets_total",
-		Help: "Number of domain sets (gauge, from DB).",
 	})
 )
 
@@ -136,24 +126,22 @@ var (
 // ========================================
 
 var (
-	// ScanCompletionsTotal increments each time a domain scan completes.
-	// With rescans enabled, this increases even when scanning the same domain again.
+	// ScanCompletionsTotal increments each time a batch is completed.
 	ScanCompletionsTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "locplace_scan_completions_total",
-		Help: "Total number of domain scan completions (counter). Increments on every scan including rescans. Use rate() for domains/second.",
+		Help: "Total number of batch completions (counter). Use rate() for batches/second.",
+	})
+
+	// DomainsCheckedTotal increments by the number of domains checked per batch.
+	DomainsCheckedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "locplace_domains_checked_total",
+		Help: "Total number of FQDNs/domains checked (counter). Use rate() for domains/second throughput.",
 	})
 
 	// LOCDiscoveriesTotal increments each time a LOC record is found.
-	// With rescans enabled, rediscovering the same LOC record increments this.
 	LOCDiscoveriesTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "locplace_loc_discoveries_total",
 		Help: "Total number of LOC record discoveries (counter). Increments on every discovery including rediscoveries. Use rate() for LOC/second.",
-	})
-
-	// SubdomainsCheckedTotal increments by the number of FQDNs checked per scan.
-	SubdomainsCheckedTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "locplace_subdomains_checked_total",
-		Help: "Total number of subdomains/FQDNs checked (counter). Use rate() for FQDNs/second throughput.",
 	})
 
 	// ReaperRunsTotal counts reaper execution cycles.
@@ -162,10 +150,10 @@ var (
 		Help: "Total number of reaper execution cycles (counter).",
 	})
 
-	// ReaperDomainsReleasedTotal counts domains released by the reaper.
-	ReaperDomainsReleasedTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "locplace_reaper_domains_released_total",
-		Help: "Total number of domains released by the reaper due to timeout (counter).",
+	// ReaperBatchesReleasedTotal counts batches released by the reaper.
+	ReaperBatchesReleasedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "locplace_reaper_batches_released_total",
+		Help: "Total number of batches released by the reaper due to timeout (counter).",
 	})
 )
 
@@ -214,17 +202,19 @@ var (
 
 // Register registers all metrics with the default Prometheus registry.
 func Register() {
-	// Gauges
-	prometheus.MustRegister(DomainsTotal)
-	prometheus.MustRegister(DomainsScanned)
-	prometheus.MustRegister(DomainsPending)
-	prometheus.MustRegister(DomainsInProgress)
-	prometheus.MustRegister(SubdomainsScannedTotal)
+	// Gauges - File/Batch progress
+	prometheus.MustRegister(DomainFilesTotal)
+	prometheus.MustRegister(DomainFilesPending)
+	prometheus.MustRegister(DomainFilesProcessing)
+	prometheus.MustRegister(DomainFilesComplete)
+	prometheus.MustRegister(BatchesPending)
+	prometheus.MustRegister(BatchesInFlight)
+
+	// Gauges - Results
 	prometheus.MustRegister(LOCRecordsTotal)
 	prometheus.MustRegister(DomainsWithLOC)
 	prometheus.MustRegister(ScannersTotal)
 	prometheus.MustRegister(ScannersActive)
-	prometheus.MustRegister(DomainSetsTotal)
 
 	// DB pool
 	prometheus.MustRegister(DBPoolTotalConns)
@@ -234,10 +224,10 @@ func Register() {
 
 	// Counters
 	prometheus.MustRegister(ScanCompletionsTotal)
+	prometheus.MustRegister(DomainsCheckedTotal)
 	prometheus.MustRegister(LOCDiscoveriesTotal)
-	prometheus.MustRegister(SubdomainsCheckedTotal)
 	prometheus.MustRegister(ReaperRunsTotal)
-	prometheus.MustRegister(ReaperDomainsReleasedTotal)
+	prometheus.MustRegister(ReaperBatchesReleasedTotal)
 
 	// HTTP
 	prometheus.MustRegister(HTTPRequestsTotal)

@@ -143,7 +143,7 @@ func TestClientWithStats_Embedding(t *testing.T) {
 			ID:   "test-id",
 			Name: "test-scanner",
 		},
-		ActiveDomains: 5,
+		ActiveBatches: 5,
 	}
 
 	// Can access embedded fields directly
@@ -153,7 +153,7 @@ func TestClientWithStats_Embedding(t *testing.T) {
 	if client.Name != "test-scanner" {
 		t.Errorf("Name = %q, want %q", client.Name, "test-scanner")
 	}
-	if client.ActiveDomains != 5 {
-		t.Errorf("ActiveDomains = %d, want %d", client.ActiveDomains, 5)
+	if client.ActiveBatches != 5 {
+		t.Errorf("ActiveBatches = %d, want %d", client.ActiveBatches, 5)
 	}
 }

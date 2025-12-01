@@ -35,9 +35,15 @@ func NewCoordinatorClient(baseURL, token string) *CoordinatorClient {
 	}
 }
 
-// GetJobs requests domains to scan from the coordinator.
-func (c *CoordinatorClient) GetJobs(ctx context.Context, count int) ([]string, error) {
-	req := api.GetJobsRequest{Count: count, SessionID: c.SessionID}
+// Batch represents a batch of FQDNs to scan.
+type Batch struct {
+	ID      int64
+	Domains []string
+}
+
+// GetBatch requests a batch of FQDNs to scan from the coordinator.
+func (c *CoordinatorClient) GetBatch(ctx context.Context) (*Batch, error) {
+	req := api.GetBatchRequest{SessionID: c.SessionID}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
@@ -58,24 +64,28 @@ func (c *CoordinatorClient) GetJobs(ctx context.Context, count int) ([]string, e
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body) //nolint:errcheck // Best effort to get error details
-		return nil, fmt.Errorf("get jobs failed: %d %s", resp.StatusCode, string(bodyBytes))
+		return nil, fmt.Errorf("get batch failed: %d %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	var result api.GetJobsResponse
+	var result api.GetBatchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
 
-	domains := make([]string, len(result.Domains))
-	for i, d := range result.Domains {
-		domains[i] = d.Domain
+	// Empty response means no batches available
+	if result.BatchID == 0 && len(result.Domains) == 0 {
+		return nil, nil
 	}
-	return domains, nil
+
+	return &Batch{
+		ID:      result.BatchID,
+		Domains: result.Domains,
+	}, nil
 }
 
 // Heartbeat sends a keepalive signal to the coordinator.
-func (c *CoordinatorClient) Heartbeat(ctx context.Context, activeDomains []string) error {
-	req := api.HeartbeatRequest{ActiveDomains: activeDomains, SessionID: c.SessionID}
+func (c *CoordinatorClient) Heartbeat(ctx context.Context) error {
+	req := api.HeartbeatRequest{SessionID: c.SessionID}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -102,10 +112,14 @@ func (c *CoordinatorClient) Heartbeat(ctx context.Context, activeDomains []strin
 	return nil
 }
 
-// SubmitResults sends scan results to the coordinator.
+// SubmitBatch sends scan results for a batch to the coordinator.
 // Uses a longer timeout than other requests since large result sets may take time to process.
-func (c *CoordinatorClient) SubmitResults(ctx context.Context, results []api.DomainResult) error {
-	req := api.SubmitResultsRequest{Results: results}
+func (c *CoordinatorClient) SubmitBatch(ctx context.Context, batchID int64, domainsChecked int, locRecords []api.LOCRecord) error {
+	req := api.SubmitBatchRequest{
+		BatchID:        batchID,
+		DomainsChecked: domainsChecked,
+		LOCRecords:     locRecords,
+	}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -130,7 +144,7 @@ func (c *CoordinatorClient) SubmitResults(ctx context.Context, results []api.Dom
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body) //nolint:errcheck // Best effort to get error details
-		return fmt.Errorf("submit results failed: %d %s", resp.StatusCode, string(bodyBytes))
+		return fmt.Errorf("submit batch failed: %d %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	return nil

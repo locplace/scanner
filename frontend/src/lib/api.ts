@@ -54,6 +54,7 @@ export interface Scanner {
 	name: string;
 	created_at: string;
 	last_heartbeat: string | null;
+	active_batches: number;
 	is_alive: boolean;
 }
 
@@ -63,22 +64,47 @@ export interface NewScanner {
 	token: string;
 }
 
-export interface DomainSet {
-	id: string;
-	name: string;
-	source: string;
-	created_at: string;
-	total_domains: number;
-	scanned_domains: number;
+export interface DomainFileStats {
+	total: number;
+	pending: number;
+	processing: number;
+	complete: number;
 }
 
-export interface NewDomainSet {
-	id: string;
-	name: string;
-	source: string;
+export interface BatchQueueStats {
+	pending: number;
+	in_flight: number;
+}
+
+export interface CurrentFileProgress {
+	filename: string;
+	processed_lines: number;
+	batches_created: number;
+	batches_completed: number;
+	progress_pct: number;
+}
+
+export interface Stats {
+	total_loc_records: number;
+	unique_root_domains_with_loc: number;
+	active_scanners: number;
+	domain_files: DomainFileStats;
+	batch_queue: BatchQueueStats;
+	current_file?: CurrentFileProgress;
 }
 
 // API functions
+
+// Public stats (no auth required)
+export async function getStats(): Promise<Stats> {
+	const response = await fetch('/api/public/stats');
+	if (!response.ok) {
+		throw new ApiError(response.status, 'Failed to fetch stats');
+	}
+	return response.json();
+}
+
+// Scanner management
 export async function listScanners(): Promise<Scanner[]> {
 	const response = await adminFetch('/api/admin/clients');
 	const data = await response.json();
@@ -99,14 +125,6 @@ export async function deleteScanner(id: string): Promise<void> {
 	});
 }
 
-export async function addDomains(domains: string[]): Promise<{ added: number }> {
-	const response = await adminFetch('/api/admin/domains', {
-		method: 'POST',
-		body: JSON.stringify({ domains })
-	});
-	return response.json();
-}
-
 export async function verifyApiKey(key: string): Promise<boolean> {
 	const response = await fetch('/api/admin/clients', {
 		headers: { 'X-Admin-Key': key }
@@ -114,40 +132,16 @@ export async function verifyApiKey(key: string): Promise<boolean> {
 	return response.ok;
 }
 
-// Domain Sets API
-export async function listDomainSets(): Promise<DomainSet[]> {
-	const response = await adminFetch('/api/admin/domain-sets');
-	const data = await response.json();
-	return data.sets || [];
-}
-
-export async function createDomainSet(name: string, source: string): Promise<NewDomainSet> {
-	const response = await adminFetch('/api/admin/domain-sets', {
-		method: 'POST',
-		body: JSON.stringify({ name, source })
+// Admin actions
+export async function discoverFiles(): Promise<{ files_discovered: number }> {
+	const response = await adminFetch('/api/admin/discover-files', {
+		method: 'POST'
 	});
 	return response.json();
 }
 
-export async function deleteDomainSet(id: string): Promise<void> {
-	await adminFetch(`/api/admin/domain-sets/${id}`, {
-		method: 'DELETE'
-	});
-}
-
-export async function addDomainsToSet(
-	setId: string,
-	domains: string[]
-): Promise<{ inserted: number; duplicates: number }> {
-	const response = await adminFetch(`/api/admin/domain-sets/${setId}/domains`, {
-		method: 'POST',
-		body: JSON.stringify({ domains })
-	});
-	return response.json();
-}
-
-export async function bumpDomainSet(setId: string): Promise<{ bumped: number }> {
-	const response = await adminFetch(`/api/admin/domain-sets/${setId}/bump`, {
+export async function resetScan(): Promise<{ files_reset: number }> {
+	const response = await adminFetch('/api/admin/reset-scan', {
 		method: 'POST'
 	});
 	return response.json();

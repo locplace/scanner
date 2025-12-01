@@ -18,7 +18,6 @@ import (
 type Config struct {
 	AdminAPIKey      string
 	HeartbeatTimeout time.Duration
-	RescanInterval   time.Duration
 }
 
 // NewServer creates a new HTTP server with all routes configured.
@@ -36,8 +35,7 @@ func NewServer(database *db.DB, cfg Config) http.Handler {
 		HeartbeatTimeout: cfg.HeartbeatTimeout,
 	}
 	scannerHandlers := &handlers.ScannerHandlers{
-		DB:             database,
-		RescanInterval: cfg.RescanInterval,
+		DB: database,
 	}
 	publicHandlers := &handlers.PublicHandlers{
 		DB:               database,
@@ -50,11 +48,8 @@ func NewServer(database *db.DB, cfg Config) http.Handler {
 		r.Post("/clients", adminHandlers.RegisterClient)
 		r.Get("/clients", adminHandlers.ListClients)
 		r.Delete("/clients/{id}", adminHandlers.DeleteClient)
-		r.Get("/domain-sets", adminHandlers.ListDomainSets)
-		r.Post("/domain-sets", adminHandlers.CreateDomainSet)
-		r.Delete("/domain-sets/{id}", adminHandlers.DeleteDomainSet)
-		r.Post("/domain-sets/{id}/domains", adminHandlers.AddDomainsToSet)
-		r.Post("/domain-sets/{id}/bump", adminHandlers.BumpDomainSet)
+		r.Post("/discover-files", adminHandlers.DiscoverFiles)
+		r.Post("/reset-scan", adminHandlers.ResetScan)
 	})
 
 	// Scanner routes (authenticated with bearer token)

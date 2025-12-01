@@ -12,8 +12,6 @@ import (
 
 // WorkerConfig holds configuration for a scanner worker.
 type WorkerConfig struct {
-	BatchSize       int
-	SubfinderConfig SubfinderConfig
 	DNSConfig       DNSConfig
 	RetryDelay      time.Duration
 	EmptyQueueDelay time.Duration
@@ -23,8 +21,6 @@ type WorkerConfig struct {
 // DefaultWorkerConfig returns the default worker configuration.
 func DefaultWorkerConfig() WorkerConfig {
 	return WorkerConfig{
-		BatchSize:       3,
-		SubfinderConfig: DefaultSubfinderConfig(),
 		DNSConfig:       DefaultDNSConfig(),
 		RetryDelay:      5 * time.Second,
 		EmptyQueueDelay: 30 * time.Second,
@@ -32,30 +28,28 @@ func DefaultWorkerConfig() WorkerConfig {
 	}
 }
 
-// Worker processes domains in a loop.
+// Worker processes batches of FQDNs in a loop.
 type Worker struct {
 	ID          int
 	Config      WorkerConfig
 	Coordinator *CoordinatorClient
-	Tracker     *DomainTracker
-	Subfinder   *Subfinder
 	DNS         *DNSScanner
 	ShutdownCh  <-chan struct{}
+	Metrics     *Metrics
 
 	// Circuit breaker state
 	consecutiveErrors int
 }
 
 // NewWorker creates a new worker.
-func NewWorker(id int, config WorkerConfig, coordinator *CoordinatorClient, tracker *DomainTracker, shutdownCh <-chan struct{}) *Worker {
+func NewWorker(id int, config WorkerConfig, coordinator *CoordinatorClient, shutdownCh <-chan struct{}, metrics *Metrics) *Worker {
 	return &Worker{
 		ID:          id,
 		Config:      config,
 		Coordinator: coordinator,
-		Tracker:     tracker,
-		Subfinder:   NewSubfinder(config.SubfinderConfig),
 		DNS:         NewDNSScanner(config.DNSConfig),
 		ShutdownCh:  shutdownCh,
+		Metrics:     metrics,
 	}
 }
 
@@ -117,17 +111,25 @@ func (w *Worker) Run(ctx context.Context) {
 			}
 		}
 
-		// Get domains to scan
-		domains, err := w.Coordinator.GetJobs(ctx, w.Config.BatchSize)
+		// Get a batch of FQDNs to scan
+		getBatchStart := time.Now()
+		batch, err := w.Coordinator.GetBatch(ctx)
+		getBatchDuration := time.Since(getBatchStart).Seconds()
+
 		if err != nil {
+			if w.Metrics != nil {
+				w.Metrics.GetJobsDuration.WithLabelValues("error").Observe(getBatchDuration)
+			}
 			if w.recordError() {
-				// First error - log it, subsequent errors will just backoff silently
 				log.Printf("[Worker %d] Connection error: %v (entering backoff)", w.ID, err)
 			}
 			continue
 		}
 
-		if len(domains) == 0 {
+		if batch == nil || len(batch.Domains) == 0 {
+			if w.Metrics != nil {
+				w.Metrics.GetJobsDuration.WithLabelValues("empty").Observe(getBatchDuration)
+			}
 			// Empty queue is not an error, reset backoff
 			if prev := w.resetErrors(); prev > 0 {
 				log.Printf("[Worker %d] Connection recovered after %d errors", w.ID, prev)
@@ -135,7 +137,7 @@ func (w *Worker) Run(ctx context.Context) {
 			// Add jitter (0.5x to 1.5x) to avoid thundering herd
 			jitter := 0.5 + rand.Float64()
 			delay := time.Duration(float64(w.Config.EmptyQueueDelay) * jitter)
-			log.Printf("[Worker %d] No domains available, waiting %s...", w.ID, delay.Round(time.Second))
+			log.Printf("[Worker %d] No batches available, waiting %s...", w.ID, delay.Round(time.Second))
 			select {
 			case <-w.ShutdownCh:
 				log.Printf("[Worker %d] Shutdown signal received, exiting", w.ID)
@@ -147,93 +149,93 @@ func (w *Worker) Run(ctx context.Context) {
 			continue
 		}
 
-		// Register domains in tracker
-		w.Tracker.Add(domains...)
+		// Got a batch successfully
+		if w.Metrics != nil {
+			w.Metrics.GetJobsDuration.WithLabelValues("success").Observe(getBatchDuration)
+		}
 
-		// Process each domain
-		for _, domain := range domains {
-			select {
-			case <-ctx.Done():
-				w.Tracker.Remove(domains...)
-				return
-			default:
-			}
+		// Process the batch
+		batchStart := time.Now()
+		locRecords := w.processBatch(ctx, batch.Domains)
+		batchDuration := time.Since(batchStart).Seconds()
 
-			result := w.processDomain(ctx, domain)
+		hasLOC := len(locRecords) > 0
 
-			// Submit result with retries to avoid losing data
-			submitted := false
-			for attempt := 1; attempt <= 3; attempt++ {
-				err := w.Coordinator.SubmitResults(ctx, []api.DomainResult{result})
-				if err == nil {
-					if prev := w.resetErrors(); prev > 0 {
-						log.Printf("[Worker %d] Connection recovered after %d errors", w.ID, prev)
-					}
-					log.Printf("[Worker %d] Submitted results for %s: %d subdomains, %d LOC records",
-						w.ID, domain, result.SubdomainsScanned, len(result.LOCRecords))
-					submitted = true
-					break
+		// Submit results with retries
+		submitted := false
+		var submitDuration float64
+		for attempt := 1; attempt <= 3; attempt++ {
+			submitStart := time.Now()
+			err := w.Coordinator.SubmitBatch(ctx, batch.ID, len(batch.Domains), locRecords)
+			submitDuration = time.Since(submitStart).Seconds()
+
+			if err == nil {
+				if prev := w.resetErrors(); prev > 0 {
+					log.Printf("[Worker %d] Connection recovered after %d errors", w.ID, prev)
 				}
+				log.Printf("[Worker %d] Submitted batch %d: %d FQDNs checked, %d LOC records found",
+					w.ID, batch.ID, len(batch.Domains), len(locRecords))
+				submitted = true
+				if w.Metrics != nil {
+					w.Metrics.SubmitDuration.WithLabelValues("success", BoolLabel(hasLOC)).Observe(submitDuration)
+				}
+				break
+			}
 
-				if attempt < 3 {
-					// Wait before retry with exponential backoff
-					retryDelay := time.Duration(attempt) * 5 * time.Second
-					log.Printf("[Worker %d] Submit failed for %s (attempt %d/3): %v, retrying in %s",
-						w.ID, domain, attempt, err, retryDelay)
-					select {
-					case <-ctx.Done():
-						return
-					case <-time.After(retryDelay):
-					}
-				} else {
-					// Final attempt failed
-					if w.recordError() {
-						log.Printf("[Worker %d] Submit failed for %s after 3 attempts: %v (entering backoff)",
-							w.ID, domain, err)
-					}
+			if attempt < 3 {
+				if w.Metrics != nil {
+					w.Metrics.SubmitRetries.Inc()
+				}
+				retryDelay := time.Duration(attempt) * 5 * time.Second
+				log.Printf("[Worker %d] Submit failed for batch %d (attempt %d/3): %v, retrying in %s",
+					w.ID, batch.ID, attempt, err, retryDelay)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(retryDelay):
+				}
+			} else {
+				if w.Metrics != nil {
+					w.Metrics.SubmitDuration.WithLabelValues("error", BoolLabel(hasLOC)).Observe(submitDuration)
+					w.Metrics.SubmitFailures.Inc()
+				}
+				if w.recordError() {
+					log.Printf("[Worker %d] Submit failed for batch %d after 3 attempts: %v (entering backoff)",
+						w.ID, batch.ID, err)
 				}
 			}
+		}
 
-			if !submitted {
-				log.Printf("[Worker %d] WARNING: Lost results for %s (%d LOC records)",
-					w.ID, domain, len(result.LOCRecords))
-			}
+		if !submitted {
+			log.Printf("[Worker %d] WARNING: Lost results for batch %d (%d LOC records)",
+				w.ID, batch.ID, len(locRecords))
+		}
 
-			// Remove from tracker
-			w.Tracker.Remove(domain)
+		// Record batch-level metrics
+		if w.Metrics != nil {
+			w.Metrics.DomainDuration.WithLabelValues(BoolLabel(hasLOC)).Observe(batchDuration)
+			w.Metrics.DomainsProcessed.Add(float64(len(batch.Domains)))
+			w.Metrics.LOCRecordsFoundTotal.Add(float64(len(locRecords)))
 		}
 	}
 }
 
-// processDomain scans a single domain for LOC records.
-func (w *Worker) processDomain(ctx context.Context, domain string) api.DomainResult {
-	result := api.DomainResult{
-		Domain:     domain,
-		LOCRecords: []api.LOCRecord{},
-	}
-
-	log.Printf("[Worker %d] Processing %s", w.ID, domain)
-
-	// Discover subdomains
-	subdomains, err := w.Subfinder.EnumerateSubdomains(ctx, domain)
-	if err != nil {
-		log.Printf("[Worker %d] Subfinder error for %s: %v", w.ID, domain, err)
-		// Continue with just the root domain
-		subdomains = []string{}
-	}
-
-	// Build list of FQDNs to scan (root domain + subdomains)
-	fqdns := make([]string, 0, len(subdomains)+1)
-	fqdns = append(fqdns, domain) // Always include root domain
-	fqdns = append(fqdns, subdomains...)
-
-	result.SubdomainsScanned = len(fqdns)
-	log.Printf("[Worker %d] Scanning %d FQDNs for %s", w.ID, len(fqdns), domain)
+// processBatch scans all FQDNs in the batch for LOC records.
+func (w *Worker) processBatch(ctx context.Context, fqdns []string) []api.LOCRecord {
+	log.Printf("[Worker %d] Processing batch of %d FQDNs", w.ID, len(fqdns))
 
 	// Scan all FQDNs for LOC records
+	dnsStart := time.Now()
 	locResults := w.DNS.LookupLOCBatch(ctx, fqdns)
+	dnsDuration := time.Since(dnsStart).Seconds()
+
+	// Record DNS metrics
+	if w.Metrics != nil {
+		w.Metrics.DNSDuration.WithLabelValues(BucketCount(len(fqdns))).Observe(dnsDuration)
+	}
 
 	// Collect LOC records
+	var locRecords []api.LOCRecord
 	for _, locResult := range locResults {
 		if locResult.Error != nil {
 			continue
@@ -249,9 +251,14 @@ func (w *Worker) processDomain(ctx context.Context, domain string) api.DomainRes
 			continue
 		}
 
-		result.LOCRecords = append(result.LOCRecords, *locRecord)
+		locRecords = append(locRecords, *locRecord)
 		log.Printf("[Worker %d] Found LOC record: %s -> %s", w.ID, locResult.FQDN, locResult.RawRecord)
 	}
 
-	return result
+	// Record LOC records found distribution
+	if w.Metrics != nil {
+		w.Metrics.LOCRecordsFound.Observe(float64(len(locRecords)))
+	}
+
+	return locRecords
 }

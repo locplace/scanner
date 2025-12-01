@@ -3,11 +3,15 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/locplace/scanner/internal/scanner"
 )
@@ -31,12 +35,6 @@ func main() {
 		}
 	}
 
-	if v := os.Getenv("BATCH_SIZE"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			config.BatchSize = n
-		}
-	}
-
 	if v := os.Getenv("HEARTBEAT_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			config.HeartbeatInterval = d
@@ -56,27 +54,27 @@ func main() {
 		}
 	}
 
-	// Subfinder configuration
-	if v := os.Getenv("SUBFINDER_THREADS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			config.SubfinderConfig.Threads = n
-		}
-	}
-
-	if v := os.Getenv("SUBFINDER_TIMEOUT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			config.SubfinderConfig.Timeout = n
-		}
-	}
-
-	if v := os.Getenv("SUBFINDER_MAX_TIME"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			config.SubfinderConfig.MaxEnumerationTime = n
-		}
-	}
-
 	// Create scanner
 	s := scanner.New(config)
+
+	// Set up Prometheus metrics
+	registry := prometheus.NewRegistry()
+	metrics := scanner.NewMetrics(registry)
+	s.SetMetrics(metrics)
+
+	// Start metrics HTTP server
+	metricsAddr := os.Getenv("METRICS_ADDR")
+	if metricsAddr == "" {
+		metricsAddr = ":9090"
+	}
+	go func() {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
+		log.Printf("Metrics server listening on %s", metricsAddr)
+		if err := http.ListenAndServe(metricsAddr, mux); err != nil && err != http.ErrServerClosed {
+			log.Printf("Metrics server error: %v", err)
+		}
+	}()
 
 	// Set up graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

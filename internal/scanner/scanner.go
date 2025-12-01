@@ -12,9 +12,7 @@ type Config struct {
 	CoordinatorURL    string
 	Token             string
 	WorkerCount       int
-	BatchSize         int
 	HeartbeatInterval time.Duration
-	SubfinderConfig   SubfinderConfig
 	DNSConfig         DNSConfig
 }
 
@@ -24,9 +22,7 @@ func DefaultConfig() Config {
 		CoordinatorURL:    "http://localhost:8080",
 		Token:             "",
 		WorkerCount:       4,
-		BatchSize:         1,
 		HeartbeatInterval: 30 * time.Second,
-		SubfinderConfig:   DefaultSubfinderConfig(),
 		DNSConfig:         DefaultDNSConfig(),
 	}
 }
@@ -35,7 +31,7 @@ func DefaultConfig() Config {
 type Scanner struct {
 	config      Config
 	coordinator *CoordinatorClient
-	tracker     *DomainTracker
+	metrics     *Metrics
 
 	// Graceful shutdown
 	shutdownCh   chan struct{}
@@ -47,7 +43,6 @@ func New(config Config) *Scanner {
 	return &Scanner{
 		config:      config,
 		coordinator: NewCoordinatorClient(config.CoordinatorURL, config.Token),
-		tracker:     NewDomainTracker(),
 		shutdownCh:  make(chan struct{}),
 	}
 }
@@ -60,12 +55,17 @@ func (s *Scanner) InitiateShutdown() {
 	})
 }
 
+// SetMetrics sets the metrics instance for the scanner.
+func (s *Scanner) SetMetrics(m *Metrics) {
+	s.metrics = m
+}
+
 // Run starts the scanner. It blocks until the context is canceled.
 func (s *Scanner) Run(ctx context.Context) error {
 	log.Printf("Starting scanner with %d workers", s.config.WorkerCount)
 	log.Printf("Session ID: %s", s.coordinator.SessionID)
 	log.Printf("Coordinator: %s", s.config.CoordinatorURL)
-	log.Printf("Batch size: %d, Heartbeat interval: %s", s.config.BatchSize, s.config.HeartbeatInterval)
+	log.Printf("Heartbeat interval: %s", s.config.HeartbeatInterval)
 
 	// Start heartbeat goroutine
 	heartbeatCtx, cancelHeartbeat := context.WithCancel(ctx)
@@ -75,8 +75,6 @@ func (s *Scanner) Run(ctx context.Context) error {
 	// Start workers
 	var wg sync.WaitGroup
 	workerConfig := WorkerConfig{
-		BatchSize:       s.config.BatchSize,
-		SubfinderConfig: s.config.SubfinderConfig,
 		DNSConfig:       s.config.DNSConfig,
 		RetryDelay:      5 * time.Second,
 		EmptyQueueDelay: 30 * time.Second,
@@ -84,7 +82,7 @@ func (s *Scanner) Run(ctx context.Context) error {
 
 	for i := 0; i < s.config.WorkerCount; i++ {
 		wg.Add(1)
-		worker := NewWorker(i+1, workerConfig, s.coordinator, s.tracker, s.shutdownCh)
+		worker := NewWorker(i+1, workerConfig, s.coordinator, s.shutdownCh, s.metrics)
 		go func() {
 			defer wg.Done()
 			worker.Run(ctx)
@@ -112,11 +110,9 @@ func (s *Scanner) runHeartbeat(ctx context.Context) {
 			log.Println("Heartbeat stopped")
 			return
 		case <-ticker.C:
-			activeDomains := s.tracker.List()
-			if err := s.coordinator.Heartbeat(ctx, activeDomains); err != nil {
+			if err := s.coordinator.Heartbeat(ctx); err != nil {
 				consecutiveErrors++
 				if consecutiveErrors == 1 {
-					// Log only on first error (entering error state)
 					log.Printf("Heartbeat error: %v (entering backoff)", err)
 				}
 			} else {
@@ -124,7 +120,7 @@ func (s *Scanner) runHeartbeat(ctx context.Context) {
 					log.Printf("Heartbeat recovered after %d errors", consecutiveErrors)
 				}
 				consecutiveErrors = 0
-				log.Printf("Heartbeat sent: %d active domains", len(activeDomains))
+				log.Println("Heartbeat sent")
 			}
 		}
 	}

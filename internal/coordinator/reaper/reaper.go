@@ -1,4 +1,4 @@
-// Package reaper provides background job cleanup for stale scans.
+// Package reaper provides background job cleanup for stale batches.
 package reaper
 
 import (
@@ -10,11 +10,11 @@ import (
 	"github.com/locplace/scanner/internal/coordinator/metrics"
 )
 
-// Reaper periodically releases stale scan assignments.
+// Reaper periodically releases stale batch assignments.
 type Reaper struct {
 	DB               *db.DB
 	Interval         time.Duration
-	JobTimeout       time.Duration
+	BatchTimeout     time.Duration
 	HeartbeatTimeout time.Duration
 }
 
@@ -23,8 +23,8 @@ func (r *Reaper) Run(ctx context.Context) {
 	ticker := time.NewTicker(r.Interval)
 	defer ticker.Stop()
 
-	log.Printf("Reaper started: interval=%s, job_timeout=%s, heartbeat_timeout=%s",
-		r.Interval, r.JobTimeout, r.HeartbeatTimeout)
+	log.Printf("Reaper started: interval=%s, batch_timeout=%s, heartbeat_timeout=%s",
+		r.Interval, r.BatchTimeout, r.HeartbeatTimeout)
 
 	// Run immediately on startup, then on each tick
 	for {
@@ -41,13 +41,13 @@ func (r *Reaper) Run(ctx context.Context) {
 
 func (r *Reaper) runOnce(ctx context.Context) {
 	metrics.ReaperRunsTotal.Inc()
-	released, err := r.DB.ReleaseStaleScans(ctx, r.JobTimeout, r.HeartbeatTimeout)
+
+	// Reset stale batches (batches that have been in_flight too long)
+	released, err := r.DB.ResetStaleBatches(ctx, r.BatchTimeout)
 	if err != nil {
-		log.Printf("Reaper error: %v", err)
-		return
-	}
-	if released > 0 {
-		metrics.ReaperDomainsReleasedTotal.Add(float64(released))
-		log.Printf("Reaper released %d stale scans", released)
+		log.Printf("Reaper error resetting stale batches: %v", err)
+	} else if released > 0 {
+		metrics.ReaperBatchesReleasedTotal.Add(float64(released))
+		log.Printf("Reaper reset %d stale batches", released)
 	}
 }

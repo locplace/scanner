@@ -9,7 +9,9 @@ require (
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/miekg/dns v1.1.68
 	github.com/prometheus/client_golang v1.23.2
+	github.com/ulikunitz/xz v0.5.15
 	github.com/zmap/zdns/v2 v2.0.5
+	golang.org/x/net v0.47.0
 )
 
 require (
@@ -38,7 +40,6 @@ require (
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/mod v0.29.0 // indirect
-	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.31.0 // indirect

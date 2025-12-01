@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import {
 		getApiKey,
 		setApiKey,
@@ -8,21 +8,23 @@
 		listScanners,
 		createScanner,
 		deleteScanner,
-		listDomainSets,
-		createDomainSet,
-		deleteDomainSet,
-		addDomainsToSet,
-		bumpDomainSet,
+		getStats,
+		discoverFiles,
+		resetScan,
 		ApiError,
 		type Scanner,
 		type NewScanner,
-		type DomainSet,
-		type NewDomainSet
+		type Stats
 	} from '$lib/api';
 
 	let authenticated = $state(false);
 	let apiKeyInput = $state('');
 	let authError = $state('');
+
+	// Stats state
+	let stats = $state<Stats | null>(null);
+	let statsLoading = $state(false);
+	let statsError = $state('');
 
 	// Scanners state
 	let scanners = $state<Scanner[]>([]);
@@ -32,30 +34,56 @@
 	let newScannerResult = $state<NewScanner | null>(null);
 	let createScannerError = $state('');
 
-	// Domain sets state
-	let domainSets = $state<DomainSet[]>([]);
-	let domainSetsLoading = $state(false);
-	let domainSetsError = $state('');
-	let newSetName = $state('');
-	let newSetSource = $state('');
-	let newSetResult = $state<NewDomainSet | null>(null);
-	let createSetError = $state('');
+	// Admin actions state
+	let actionLoading = $state(false);
+	let actionResult = $state('');
+	let actionError = $state('');
 
-	// Domain upload state
-	let selectedSetId = $state('');
-	let domainsInput = $state('');
-	let domainsResult = $state<{ inserted: number; duplicates: number } | null>(null);
-	let domainsError = $state('');
+	// Auto-refresh interval
+	let refreshInterval: ReturnType<typeof setInterval> | null = null;
 
 	onMount(() => {
 		if (getApiKey()) {
 			authenticated = true;
 			loadData();
+			startAutoRefresh();
 		}
 	});
 
+	onDestroy(() => {
+		stopAutoRefresh();
+	});
+
+	function startAutoRefresh() {
+		refreshInterval = setInterval(() => {
+			if (authenticated) {
+				loadStats();
+				loadScanners();
+			}
+		}, 5000);
+	}
+
+	function stopAutoRefresh() {
+		if (refreshInterval) {
+			clearInterval(refreshInterval);
+			refreshInterval = null;
+		}
+	}
+
 	async function loadData() {
-		await Promise.all([loadScanners(), loadDomainSets()]);
+		await Promise.all([loadStats(), loadScanners()]);
+	}
+
+	async function loadStats() {
+		statsLoading = true;
+		statsError = '';
+		try {
+			stats = await getStats();
+		} catch (e) {
+			statsError = e instanceof Error ? e.message : 'Failed to load stats';
+		} finally {
+			statsLoading = false;
+		}
 	}
 
 	async function login() {
@@ -71,6 +99,7 @@
 			authenticated = true;
 			apiKeyInput = '';
 			loadData();
+			startAutoRefresh();
 		} else {
 			authError = 'Invalid API key';
 		}
@@ -80,7 +109,8 @@
 		clearApiKey();
 		authenticated = false;
 		scanners = [];
-		domainSets = [];
+		stats = null;
+		stopAutoRefresh();
 	}
 
 	// Scanners
@@ -92,6 +122,7 @@
 		} catch (e) {
 			if (e instanceof ApiError && e.status === 401) {
 				authenticated = false;
+				stopAutoRefresh();
 			} else {
 				scannersError = e instanceof Error ? e.message : 'Failed to load scanners';
 			}
@@ -115,6 +146,7 @@
 		} catch (e) {
 			if (e instanceof ApiError && e.status === 401) {
 				authenticated = false;
+				stopAutoRefresh();
 			} else {
 				createScannerError = e instanceof Error ? e.message : 'Failed to create scanner';
 			}
@@ -130,117 +162,56 @@
 		} catch (e) {
 			if (e instanceof ApiError && e.status === 401) {
 				authenticated = false;
+				stopAutoRefresh();
 			} else {
 				alert(e instanceof Error ? e.message : 'Failed to delete scanner');
 			}
 		}
 	}
 
-	// Domain Sets
-	async function loadDomainSets() {
-		domainSetsLoading = true;
-		domainSetsError = '';
+	// Admin actions
+	async function handleDiscoverFiles() {
+		actionLoading = true;
+		actionResult = '';
+		actionError = '';
+
 		try {
-			domainSets = await listDomainSets();
+			const result = await discoverFiles();
+			actionResult = `Discovered ${result.files_discovered} new file(s)`;
+			loadStats();
 		} catch (e) {
 			if (e instanceof ApiError && e.status === 401) {
 				authenticated = false;
+				stopAutoRefresh();
 			} else {
-				domainSetsError = e instanceof Error ? e.message : 'Failed to load domain sets';
+				actionError = e instanceof Error ? e.message : 'Failed to discover files';
 			}
 		} finally {
-			domainSetsLoading = false;
+			actionLoading = false;
 		}
 	}
 
-	async function handleCreateDomainSet() {
-		createSetError = '';
-		newSetResult = null;
-		if (!newSetName.trim()) {
-			createSetError = 'Name is required';
+	async function handleResetScan() {
+		if (!confirm('Reset all scanning progress? This will reset all domain files to pending status.'))
 			return;
-		}
-		if (!newSetSource.trim()) {
-			createSetError = 'Source is required';
-			return;
-		}
+
+		actionLoading = true;
+		actionResult = '';
+		actionError = '';
 
 		try {
-			newSetResult = await createDomainSet(newSetName.trim(), newSetSource.trim());
-			newSetName = '';
-			newSetSource = '';
-			loadDomainSets();
+			const result = await resetScan();
+			actionResult = `Reset ${result.files_reset} file(s) to pending`;
+			loadStats();
 		} catch (e) {
 			if (e instanceof ApiError && e.status === 401) {
 				authenticated = false;
+				stopAutoRefresh();
 			} else {
-				createSetError = e instanceof Error ? e.message : 'Failed to create domain set';
+				actionError = e instanceof Error ? e.message : 'Failed to reset scan';
 			}
-		}
-	}
-
-	async function handleDeleteDomainSet(id: string, name: string) {
-		if (!confirm(`Delete domain set "${name}"? Domains will remain but lose their set association.`))
-			return;
-
-		try {
-			await deleteDomainSet(id);
-			if (selectedSetId === id) {
-				selectedSetId = '';
-			}
-			loadDomainSets();
-		} catch (e) {
-			if (e instanceof ApiError && e.status === 401) {
-				authenticated = false;
-			} else {
-				alert(e instanceof Error ? e.message : 'Failed to delete domain set');
-			}
-		}
-	}
-
-	async function handleBumpDomainSet(id: string, name: string) {
-		try {
-			const result = await bumpDomainSet(id);
-			alert(`Bumped ${result.bumped} unscanned domain(s) in "${name}" to front of queue`);
-		} catch (e) {
-			if (e instanceof ApiError && e.status === 401) {
-				authenticated = false;
-			} else {
-				alert(e instanceof Error ? e.message : 'Failed to bump domain set');
-			}
-		}
-	}
-
-	// Domain upload
-	async function handleAddDomains() {
-		domainsError = '';
-		domainsResult = null;
-
-		if (!selectedSetId) {
-			domainsError = 'Select a domain set first';
-			return;
-		}
-
-		const domains = domainsInput
-			.split(/[\n,]+/)
-			.map((d) => d.trim())
-			.filter((d) => d.length > 0);
-
-		if (domains.length === 0) {
-			domainsError = 'Enter at least one domain';
-			return;
-		}
-
-		try {
-			domainsResult = await addDomainsToSet(selectedSetId, domains);
-			domainsInput = '';
-			loadDomainSets();
-		} catch (e) {
-			if (e instanceof ApiError && e.status === 401) {
-				authenticated = false;
-			} else {
-				domainsError = e instanceof Error ? e.message : 'Failed to add domains';
-			}
+		} finally {
+			actionLoading = false;
 		}
 	}
 
@@ -287,131 +258,103 @@
 			<button class="logout" onclick={logout}>Logout</button>
 		</header>
 
-		<section>
-			<h2>Domain Sets</h2>
-			<p class="section-description">
-				Organize domains by source. Create a set, then add domains to it.
-			</p>
+		<section class="stats-section">
+			<h2>Scanning Progress</h2>
 
-			{#if domainSetsLoading}
+			{#if statsLoading && !stats}
 				<p>Loading...</p>
-			{:else if domainSetsError}
-				<p class="error">{domainSetsError}</p>
-			{:else if domainSets.length === 0}
-				<p class="muted">No domain sets yet. Create one to start adding domains.</p>
-			{:else}
-				<div class="table-wrapper">
-					<table>
-						<thead>
-							<tr>
-								<th>Name</th>
-								<th>Source</th>
-								<th>Domains</th>
-								<th>Progress</th>
-								<th>Created</th>
-								<th>Actions</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each domainSets as set}
-								<tr>
-									<td><strong>{set.name}</strong></td>
-									<td class="source">{set.source}</td>
-									<td>{formatNumber(set.total_domains)}</td>
-									<td>
-										{#if set.total_domains > 0}
-											<span class="progress">
-												{formatNumber(set.scanned_domains)} / {formatNumber(set.total_domains)}
-												({Math.round((set.scanned_domains / set.total_domains) * 100)}%)
-											</span>
-										{:else}
-											<span class="muted">-</span>
-										{/if}
-									</td>
-									<td>{formatDate(set.created_at)}</td>
-									<td class="actions">
-										<button
-											class="bump"
-											onclick={() => handleBumpDomainSet(set.id, set.name)}
-											title="Move unscanned domains to front of queue"
-										>
-											Bump
-										</button>
-										<button class="delete" onclick={() => handleDeleteDomainSet(set.id, set.name)}>
-											Delete
-										</button>
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
+			{:else if statsError}
+				<p class="error">{statsError}</p>
+			{:else if stats}
+				<div class="stats-grid">
+					<div class="stat-card">
+						<div class="stat-value">{formatNumber(stats.total_loc_records)}</div>
+						<div class="stat-label">LOC Records</div>
+					</div>
+					<div class="stat-card">
+						<div class="stat-value">{formatNumber(stats.unique_root_domains_with_loc)}</div>
+						<div class="stat-label">Unique Domains</div>
+					</div>
+					<div class="stat-card">
+						<div class="stat-value">{stats.active_scanners}</div>
+						<div class="stat-label">Active Scanners</div>
+					</div>
 				</div>
-			{/if}
 
-			<h3>Create Domain Set</h3>
-			<form
-				class="create-set-form"
-				onsubmit={(e) => {
-					e.preventDefault();
-					handleCreateDomainSet();
-				}}
-			>
-				<input type="text" bind:value={newSetName} placeholder="Name (e.g., .com zone file)" />
-				<input type="text" bind:value={newSetSource} placeholder="Source (e.g., ICANN CZDS)" />
-				<button type="submit">Create</button>
-			</form>
-			{#if createSetError}
-				<p class="error">{createSetError}</p>
-			{/if}
-			{#if newSetResult}
-				<p class="success">Created domain set "{newSetResult.name}"</p>
+				<h3>Domain Files</h3>
+				<div class="progress-bar-container">
+					<div
+						class="progress-bar"
+						style="width: {stats.domain_files.total > 0
+							? (stats.domain_files.complete / stats.domain_files.total) * 100
+							: 0}%"
+					></div>
+				</div>
+				<div class="file-stats">
+					<span class="file-stat pending"
+						>Pending: {formatNumber(stats.domain_files.pending)}</span
+					>
+					<span class="file-stat processing"
+						>Processing: {formatNumber(stats.domain_files.processing)}</span
+					>
+					<span class="file-stat complete"
+						>Complete: {formatNumber(stats.domain_files.complete)}</span
+					>
+					<span class="file-stat total">Total: {formatNumber(stats.domain_files.total)}</span>
+				</div>
+
+				<h3>Batch Queue</h3>
+				<div class="batch-stats">
+					<span class="batch-stat">Pending: {formatNumber(stats.batch_queue.pending)}</span>
+					<span class="batch-stat">In Flight: {formatNumber(stats.batch_queue.in_flight)}</span>
+				</div>
+
+				{#if stats.current_file}
+					<h3>Current File</h3>
+					<div class="current-file">
+						<div class="filename">{stats.current_file.filename}</div>
+						<div class="progress-bar-container small">
+							<div
+								class="progress-bar"
+								style="width: {stats.current_file.progress_pct}%"
+							></div>
+						</div>
+						<div class="file-progress">
+							<span>Lines: {formatNumber(stats.current_file.processed_lines)}</span>
+							<span
+								>Batches: {formatNumber(stats.current_file.batches_completed)} / {formatNumber(
+									stats.current_file.batches_created
+								)}</span
+							>
+							<span>{stats.current_file.progress_pct.toFixed(1)}%</span>
+						</div>
+					</div>
+				{/if}
 			{/if}
 		</section>
 
 		<section>
-			<h2>Add Domains</h2>
-
-			<div class="set-selector">
-				<label for="domain-set">Domain Set:</label>
-				<select id="domain-set" bind:value={selectedSetId}>
-					<option value="">-- Select a domain set --</option>
-					{#each domainSets as set}
-						<option value={set.id}>{set.name} ({formatNumber(set.total_domains)} domains)</option>
-					{/each}
-				</select>
+			<h2>Admin Actions</h2>
+			<div class="action-buttons">
+				<button onclick={handleDiscoverFiles} disabled={actionLoading}>
+					{actionLoading ? 'Working...' : 'Discover Files'}
+				</button>
+				<button class="danger" onclick={handleResetScan} disabled={actionLoading}>
+					{actionLoading ? 'Working...' : 'Reset Scan'}
+				</button>
 			</div>
-
-			<form
-				onsubmit={(e) => {
-					e.preventDefault();
-					handleAddDomains();
-				}}
-			>
-				<textarea
-					bind:value={domainsInput}
-					placeholder="Enter domains (one per line or comma-separated)"
-					rows="5"
-					disabled={!selectedSetId}
-				></textarea>
-				<button type="submit" disabled={!selectedSetId}>Add Domains</button>
-			</form>
-			{#if domainsError}
-				<p class="error">{domainsError}</p>
+			{#if actionError}
+				<p class="error">{actionError}</p>
 			{/if}
-			{#if domainsResult}
-				<p class="success">
-					Added {domainsResult.inserted} domain(s)
-					{#if domainsResult.duplicates > 0}
-						({domainsResult.duplicates} duplicates skipped)
-					{/if}
-				</p>
+			{#if actionResult}
+				<p class="success">{actionResult}</p>
 			{/if}
 		</section>
 
 		<section>
 			<h2>Scanners</h2>
 
-			{#if scannersLoading}
+			{#if scannersLoading && scanners.length === 0}
 				<p>Loading...</p>
 			{:else if scannersError}
 				<p class="error">{scannersError}</p>
@@ -424,6 +367,7 @@
 							<tr>
 								<th>Name</th>
 								<th>Status</th>
+								<th>Active Batches</th>
 								<th>Last Heartbeat</th>
 								<th>Created</th>
 								<th></th>
@@ -438,6 +382,7 @@
 											{scanner.is_alive ? 'Active' : 'Inactive'}
 										</span>
 									</td>
+									<td>{scanner.active_batches}</td>
 									<td>{formatDate(scanner.last_heartbeat)}</td>
 									<td>{formatDate(scanner.created_at)}</td>
 									<td>
@@ -543,13 +488,8 @@
 		margin-bottom: 3rem;
 	}
 
-	.section-description {
-		color: #666;
-		margin-bottom: 1rem;
-	}
-
 	h2 {
-		margin-bottom: 0.5rem;
+		margin-bottom: 1rem;
 		color: #333;
 	}
 
@@ -560,6 +500,140 @@
 		color: #666;
 	}
 
+	/* Stats grid */
+	.stats-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+		gap: 1rem;
+		margin-bottom: 1.5rem;
+	}
+
+	.stat-card {
+		background: #f8f9fa;
+		padding: 1.25rem;
+		border-radius: 8px;
+		text-align: center;
+	}
+
+	.stat-value {
+		font-size: 1.75rem;
+		font-weight: 700;
+		color: #3131dc;
+	}
+
+	.stat-label {
+		font-size: 0.875rem;
+		color: #666;
+		margin-top: 0.25rem;
+	}
+
+	/* Progress bars */
+	.progress-bar-container {
+		background: #eee;
+		border-radius: 4px;
+		height: 24px;
+		overflow: hidden;
+		margin-bottom: 0.5rem;
+	}
+
+	.progress-bar-container.small {
+		height: 12px;
+	}
+
+	.progress-bar {
+		background: linear-gradient(90deg, #3131dc, #5050ff);
+		height: 100%;
+		transition: width 0.3s ease;
+	}
+
+	/* File stats */
+	.file-stats {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1rem;
+	}
+
+	.file-stat {
+		font-size: 0.875rem;
+		padding: 0.25rem 0.5rem;
+		border-radius: 4px;
+	}
+
+	.file-stat.pending {
+		background: #fff3cd;
+		color: #856404;
+	}
+
+	.file-stat.processing {
+		background: #cce5ff;
+		color: #004085;
+	}
+
+	.file-stat.complete {
+		background: #d4edda;
+		color: #155724;
+	}
+
+	.file-stat.total {
+		background: #e2e3e5;
+		color: #383d41;
+	}
+
+	/* Batch stats */
+	.batch-stats {
+		display: flex;
+		gap: 1.5rem;
+	}
+
+	.batch-stat {
+		font-size: 0.9rem;
+		color: #333;
+	}
+
+	/* Current file */
+	.current-file {
+		background: #f0f4ff;
+		padding: 1rem;
+		border-radius: 8px;
+		border: 1px solid #c5d5ff;
+	}
+
+	.current-file .filename {
+		font-family: monospace;
+		font-size: 0.875rem;
+		color: #333;
+		margin-bottom: 0.5rem;
+		word-break: break-all;
+	}
+
+	.current-file .file-progress {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1rem;
+		font-size: 0.8rem;
+		color: #666;
+	}
+
+	/* Action buttons */
+	.action-buttons {
+		display: flex;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.action-buttons button {
+		padding: 0.75rem 1.5rem;
+	}
+
+	.action-buttons button.danger {
+		background: #dc3545;
+	}
+
+	.action-buttons button.danger:hover:not(:disabled) {
+		background: #c82333;
+	}
+
+	/* Table */
 	.table-wrapper {
 		overflow-x: auto;
 	}
@@ -582,16 +656,6 @@
 		font-size: 0.875rem;
 	}
 
-	.source {
-		color: #666;
-		font-size: 0.875rem;
-	}
-
-	.progress {
-		font-size: 0.875rem;
-		color: #333;
-	}
-
 	.status {
 		padding: 0.25rem 0.5rem;
 		border-radius: 4px;
@@ -611,33 +675,6 @@
 		gap: 0.5rem;
 	}
 
-	.create-set-form {
-		display: flex;
-		gap: 0.5rem;
-	}
-
-	.create-set-form input {
-		flex: 1;
-	}
-
-	.set-selector {
-		margin-bottom: 1rem;
-	}
-
-	.set-selector label {
-		display: block;
-		margin-bottom: 0.5rem;
-		font-weight: 500;
-	}
-
-	.set-selector select {
-		width: 100%;
-		padding: 0.5rem;
-		border: 1px solid #ccc;
-		border-radius: 4px;
-		font-size: 1rem;
-	}
-
 	input[type='text'],
 	input[type='password'] {
 		padding: 0.5rem;
@@ -648,21 +685,6 @@
 
 	.inline-form input {
 		flex: 1;
-	}
-
-	textarea {
-		width: 100%;
-		padding: 0.5rem;
-		border: 1px solid #ccc;
-		border-radius: 4px;
-		font-size: 1rem;
-		font-family: inherit;
-		resize: vertical;
-	}
-
-	textarea:disabled {
-		background: #f5f5f5;
-		cursor: not-allowed;
 	}
 
 	button {
@@ -692,21 +714,6 @@
 
 	button.delete:hover {
 		background: #a00;
-	}
-
-	button.bump {
-		background: #f90;
-		font-size: 0.875rem;
-		padding: 0.25rem 0.5rem;
-	}
-
-	button.bump:hover {
-		background: #e80;
-	}
-
-	.actions {
-		display: flex;
-		gap: 0.5rem;
 	}
 
 	.error {
@@ -758,6 +765,14 @@
 			font-size: 1.5rem;
 		}
 
+		.stats-grid {
+			grid-template-columns: 1fr 1fr;
+		}
+
+		.stat-value {
+			font-size: 1.5rem;
+		}
+
 		/* Tables scroll via wrapper */
 		table {
 			white-space: nowrap;
@@ -770,29 +785,34 @@
 		}
 
 		/* Stack form elements */
-		.create-set-form,
 		.inline-form {
 			flex-direction: column;
 		}
 
-		.create-set-form input,
 		.inline-form input {
 			width: 100%;
 		}
 
-		.create-set-form button,
 		.inline-form button {
 			width: 100%;
 		}
 
-		/* Stack action buttons */
-		.actions {
+		.action-buttons {
 			flex-direction: column;
-			gap: 0.25rem;
 		}
 
-		.actions button {
+		.action-buttons button {
 			width: 100%;
+		}
+
+		.file-stats {
+			flex-direction: column;
+			gap: 0.5rem;
+		}
+
+		.batch-stats {
+			flex-direction: column;
+			gap: 0.5rem;
 		}
 	}
 
@@ -803,6 +823,10 @@
 
 		h2 {
 			font-size: 1.25rem;
+		}
+
+		.stats-grid {
+			grid-template-columns: 1fr;
 		}
 
 		th,

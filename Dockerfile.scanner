@@ -14,7 +14,6 @@ COPY . .
 
 # Build scanner and install subfinder
 RUN CGO_ENABLED=0 GOOS=linux go build -o /scanner ./cmd/scanner
-RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
 
 # Runtime image
 FROM alpine:3.19
@@ -22,6 +21,5 @@ FROM alpine:3.19
 RUN apk add --no-cache ca-certificates
 
 COPY --from=builder /scanner /scanner
-COPY --from=builder /go/bin/subfinder /usr/local/bin/subfinder
 
 ENTRYPOINT ["/scanner"]

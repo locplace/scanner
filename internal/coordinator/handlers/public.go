@@ -96,24 +96,7 @@ func (h *PublicHandlers) GetRecordsGeoJSON(w http.ResponseWriter, r *http.Reques
 func (h *PublicHandlers) GetStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	domainStats, err := h.DB.GetDomainStats(ctx)
-	if err != nil {
-		writeError(w, "failed to get domain stats", http.StatusInternalServerError)
-		return
-	}
-
-	inProgress, err := h.DB.CountInProgressDomains(ctx)
-	if err != nil {
-		writeError(w, "failed to get in-progress count", http.StatusInternalServerError)
-		return
-	}
-
-	activeClients, err := h.DB.CountActiveClients(ctx, h.HeartbeatTimeout)
-	if err != nil {
-		writeError(w, "failed to get active clients", http.StatusInternalServerError)
-		return
-	}
-
+	// LOC record stats
 	locCount, err := h.DB.CountLOCRecords(ctx)
 	if err != nil {
 		writeError(w, "failed to get LOC record count", http.StatusInternalServerError)
@@ -126,15 +109,63 @@ func (h *PublicHandlers) GetStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Scanner stats
+	activeClients, err := h.DB.CountActiveClients(ctx, h.HeartbeatTimeout)
+	if err != nil {
+		writeError(w, "failed to get active clients", http.StatusInternalServerError)
+		return
+	}
+
+	// File stats
+	fileStats, err := h.DB.GetDomainFileStats(ctx)
+	if err != nil {
+		writeError(w, "failed to get file stats", http.StatusInternalServerError)
+		return
+	}
+
+	// Batch stats
+	batchStats, err := h.DB.GetBatchStats(ctx)
+	if err != nil {
+		writeError(w, "failed to get batch stats", http.StatusInternalServerError)
+		return
+	}
+
+	// Current file progress
+	var currentFile *api.CurrentFileProgress
+	processingFile, err := h.DB.GetCurrentProcessingFile(ctx)
+	if err != nil {
+		writeError(w, "failed to get current file", http.StatusInternalServerError)
+		return
+	}
+	if processingFile != nil {
+		progressPct := 0.0
+		if processingFile.BatchesCreated > 0 {
+			progressPct = float64(processingFile.BatchesCompleted) / float64(processingFile.BatchesCreated) * 100
+		}
+		currentFile = &api.CurrentFileProgress{
+			Filename:         processingFile.Filename,
+			ProcessedLines:   processingFile.ProcessedLines,
+			BatchesCreated:   processingFile.BatchesCreated,
+			BatchesCompleted: processingFile.BatchesCompleted,
+			ProgressPct:      progressPct,
+		}
+	}
+
 	writeJSON(w, http.StatusOK, api.StatsResponse{
-		TotalRootDomains:         domainStats.Total,
-		ScannedRootDomains:       domainStats.Scanned,
-		PendingRootDomains:       domainStats.Pending,
-		InProgressRootDomains:    inProgress,
-		TotalSubdomainsScanned:   domainStats.TotalSubdomainsScanned,
-		ActiveScanners:           activeClients,
 		TotalLOCRecords:          locCount,
 		UniqueRootDomainsWithLOC: uniqueWithLOC,
+		ActiveScanners:           activeClients,
+		DomainFiles: api.DomainFileStats{
+			Total:      fileStats.Total,
+			Pending:    fileStats.Pending,
+			Processing: fileStats.Processing,
+			Complete:   fileStats.Complete,
+		},
+		BatchQueue: api.BatchQueueStats{
+			Pending:  batchStats.Pending,
+			InFlight: batchStats.InFlight,
+		},
+		CurrentFile: currentFile,
 	})
 }
 

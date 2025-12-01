@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 
 	"github.com/locplace/scanner/internal/coordinator"
 	"github.com/locplace/scanner/internal/coordinator/db"
+	"github.com/locplace/scanner/internal/coordinator/feeder"
 	"github.com/locplace/scanner/internal/coordinator/metrics"
 	"github.com/locplace/scanner/internal/coordinator/reaper"
 	"github.com/locplace/scanner/migrations"
@@ -29,10 +31,15 @@ func main() {
 	listenAddr := getEnv("LISTEN_ADDR", ":8080")
 	metricsAddr := getEnv("METRICS_ADDR", ":9090")
 	metricsInterval := parseDuration("METRICS_INTERVAL", 15*time.Second)
-	jobTimeout := parseDuration("JOB_TIMEOUT", 10*time.Minute)
 	heartbeatTimeout := parseDuration("HEARTBEAT_TIMEOUT", 2*time.Minute)
 	reaperInterval := parseDuration("REAPER_INTERVAL", 60*time.Second)
-	rescanInterval := parseDuration("RESCAN_INTERVAL", 0) // 0 = scan each domain only once
+	batchTimeout := parseDuration("BATCH_TIMEOUT", 10*time.Minute)
+
+	// Feeder configuration
+	batchSize := parseInt("BATCH_SIZE", 1000)
+	maxPendingBatches := parseInt("MAX_PENDING_BATCHES", 20)
+	feederPollInterval := parseDuration("FEEDER_POLL_INTERVAL", 5*time.Second)
+	githubToken := os.Getenv("GITHUB_TOKEN") // Optional: for LFS downloads
 
 	if adminAPIKey == "" {
 		log.Fatal("ADMIN_API_KEY environment variable is required")
@@ -40,12 +47,6 @@ func main() {
 
 	// Register Prometheus metrics
 	metrics.Register()
-
-	if rescanInterval > 0 {
-		log.Printf("Rescan interval: %s (domains will be re-scanned after this time)", rescanInterval)
-	} else {
-		log.Println("Rescan interval: disabled (domains will only be scanned once)")
-	}
 
 	// Connect to database
 	ctx := context.Background()
@@ -65,7 +66,6 @@ func main() {
 	cfg := coordinator.Config{
 		AdminAPIKey:      adminAPIKey,
 		HeartbeatTimeout: heartbeatTimeout,
-		RescanInterval:   rescanInterval,
 	}
 	handler := coordinator.NewServer(database, cfg)
 
@@ -100,14 +100,40 @@ func main() {
 		}
 	}()
 
-	// Start reaper
+	// Start reaper (handles stale batches and dead clients)
 	r := &reaper.Reaper{
 		DB:               database,
 		Interval:         reaperInterval,
-		JobTimeout:       jobTimeout,
+		BatchTimeout:     batchTimeout,
 		HeartbeatTimeout: heartbeatTimeout,
 	}
 	go r.Run(bgCtx)
+
+	// Start feeder (batch producer)
+	feederCfg := feeder.Config{
+		BatchSize:         batchSize,
+		MaxPendingBatches: maxPendingBatches,
+		PollInterval:      feederPollInterval,
+		GitHubToken:       githubToken,
+	}
+	if githubToken != "" {
+		log.Println("Feeder: using authenticated GitHub LFS downloads")
+	} else {
+		log.Println("Feeder: WARNING - no GITHUB_TOKEN set, LFS downloads may fail due to repo quota")
+	}
+	f := feeder.New(database, feederCfg)
+	go f.Run(bgCtx)
+
+	// Initial file discovery (non-blocking)
+	go func() {
+		log.Println("Starting initial file discovery...")
+		count, err := feeder.DiscoverAndInsertFiles(bgCtx, database)
+		if err != nil {
+			log.Printf("Initial file discovery failed: %v", err)
+			return
+		}
+		log.Printf("Initial file discovery complete: %d files", count)
+	}()
 
 	// Start main server
 	go func() {
@@ -156,6 +182,19 @@ func parseDuration(key string, defaultVal time.Duration) time.Duration {
 		return defaultVal
 	}
 	return d
+}
+
+func parseInt(key string, defaultVal int) int {
+	s := os.Getenv(key)
+	if s == "" {
+		return defaultVal
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		log.Printf("Invalid int for %s: %v, using default", key, err)
+		return defaultVal
+	}
+	return v
 }
 
 func runMigrations(databaseURL string) error {

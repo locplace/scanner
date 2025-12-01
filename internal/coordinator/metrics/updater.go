@@ -61,17 +61,19 @@ func (u *Updater) update(ctx context.Context) {
 		return
 	}
 
-	// Update gauges
-	DomainsTotal.Set(float64(snapshot.DomainsTotal))
-	DomainsScanned.Set(float64(snapshot.DomainsScanned))
-	DomainsPending.Set(float64(snapshot.DomainsPending))
-	DomainsInProgress.Set(float64(snapshot.DomainsInProgress))
-	SubdomainsScannedTotal.Set(float64(snapshot.SubdomainsTotal))
+	// Update file/batch gauges
+	DomainFilesTotal.Set(float64(snapshot.FilesTotal))
+	DomainFilesPending.Set(float64(snapshot.FilesPending))
+	DomainFilesProcessing.Set(float64(snapshot.FilesProcessing))
+	DomainFilesComplete.Set(float64(snapshot.FilesComplete))
+	BatchesPending.Set(float64(snapshot.BatchesPending))
+	BatchesInFlight.Set(float64(snapshot.BatchesInFlight))
+
+	// Update LOC/scanner gauges
 	LOCRecordsTotal.Set(float64(snapshot.LOCRecordsTotal))
 	DomainsWithLOC.Set(float64(snapshot.DomainsWithLOC))
 	ScannersTotal.Set(float64(snapshot.ScannersTotal))
 	ScannersActive.Set(float64(snapshot.ScannersActive))
-	DomainSetsTotal.Set(float64(snapshot.DomainSetsTotal))
 
 	// Update pool stats
 	poolStats := u.pool.Stat()
