@@ -42,12 +42,22 @@ func (r *Reaper) Run(ctx context.Context) {
 func (r *Reaper) runOnce(ctx context.Context) {
 	metrics.ReaperRunsTotal.Inc()
 
-	// Reset stale batches (batches that have been in_flight too long)
+	// Reset batches from dead sessions (sessions that haven't heartbeated)
+	// This is the primary mechanism for reclaiming batches from crashed scanners
+	releasedFromDeadSessions, err := r.DB.ResetBatchesFromDeadSessions(ctx, r.HeartbeatTimeout)
+	if err != nil {
+		log.Printf("Reaper error resetting batches from dead sessions: %v", err)
+	} else if releasedFromDeadSessions > 0 {
+		metrics.ReaperBatchesReleasedTotal.Add(float64(releasedFromDeadSessions))
+		log.Printf("Reaper reset %d batches from dead sessions", releasedFromDeadSessions)
+	}
+
+	// Reset stale batches without session_id (backwards compat for old batches)
 	released, err := r.DB.ResetStaleBatches(ctx, r.BatchTimeout)
 	if err != nil {
 		log.Printf("Reaper error resetting stale batches: %v", err)
 	} else if released > 0 {
 		metrics.ReaperBatchesReleasedTotal.Add(float64(released))
-		log.Printf("Reaper reset %d stale batches", released)
+		log.Printf("Reaper reset %d stale batches (no session)", released)
 	}
 }

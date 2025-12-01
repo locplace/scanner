@@ -33,14 +33,17 @@ func (h *ScannerHandlers) GetJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update client's session_id and heartbeat
-	if err := h.DB.UpdateSessionID(r.Context(), client.ID, req.SessionID); err != nil {
+	// Create or update the scanner session (for multi-scanner support)
+	if err := h.DB.UpsertSession(r.Context(), client.ID, req.SessionID); err != nil {
 		writeError(w, "failed to update session", http.StatusInternalServerError)
 		return
 	}
 
-	// Claim a batch
-	batch, err := h.DB.ClaimBatch(r.Context(), client.ID)
+	// Also update client's last_heartbeat for backwards compat
+	_ = h.DB.UpdateHeartbeat(r.Context(), client.ID, req.SessionID)
+
+	// Claim a batch (pass both client ID and session ID)
+	batch, err := h.DB.ClaimBatch(r.Context(), client.ID, req.SessionID)
 	if err != nil {
 		writeError(w, "failed to claim batch", http.StatusInternalServerError)
 		return
@@ -85,10 +88,14 @@ func (h *ScannerHandlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.DB.UpdateHeartbeat(r.Context(), client.ID, req.SessionID); err != nil {
+	// Update session heartbeat (for multi-scanner support)
+	if err := h.DB.UpsertSession(r.Context(), client.ID, req.SessionID); err != nil {
 		writeError(w, "failed to update heartbeat", http.StatusInternalServerError)
 		return
 	}
+
+	// Also update client heartbeat for backwards compat
+	_ = h.DB.UpdateHeartbeat(r.Context(), client.ID, req.SessionID)
 
 	writeJSON(w, http.StatusOK, api.HeartbeatResponse{OK: true})
 }

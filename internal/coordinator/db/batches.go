@@ -14,7 +14,8 @@ type ScanBatch struct {
 	Domains    string // Newline-separated FQDNs
 	Status     string
 	AssignedAt *time.Time
-	ScannerID  *string
+	ScannerID  *string // Client ID (for backwards compat)
+	SessionID  *string // Session ID (for multi-scanner support)
 }
 
 // BatchStats holds aggregate statistics for batches.
@@ -81,9 +82,10 @@ func (db *DB) CreateBatchAndUpdateProgress(ctx context.Context, fileID int, line
 	return tx.Commit(ctx)
 }
 
-// ClaimBatch claims a pending batch for a scanner.
+// ClaimBatch claims a pending batch for a scanner session.
+// scannerID is the client ID (for backwards compat), sessionID is the unique session.
 // Returns nil if no batches are available.
-func (db *DB) ClaimBatch(ctx context.Context, scannerID string) (*ScanBatch, error) {
+func (db *DB) ClaimBatch(ctx context.Context, scannerID, sessionID string) (*ScanBatch, error) {
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -107,12 +109,12 @@ func (db *DB) ClaimBatch(ctx context.Context, scannerID string) (*ScanBatch, err
 		return nil, err
 	}
 
-	// Update to in_flight
+	// Update to in_flight with both scanner_id (backwards compat) and session_id
 	_, err = tx.Exec(ctx, `
 		UPDATE scan_batches
-		SET status = 'in_flight', assigned_at = NOW(), scanner_id = $2
+		SET status = 'in_flight', assigned_at = NOW(), scanner_id = $2, session_id = $3
 		WHERE id = $1
-	`, b.ID, scannerID)
+	`, b.ID, scannerID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -166,13 +168,33 @@ func (db *DB) CompleteBatch(ctx context.Context, batchID int64) (int, error) {
 }
 
 // ResetStaleBatches resets batches that have been in_flight too long.
+// This is for backwards compatibility with batches that don't have session_id.
 func (db *DB) ResetStaleBatches(ctx context.Context, timeout time.Duration) (int, error) {
 	result, err := db.Pool.Exec(ctx, `
 		UPDATE scan_batches
-		SET status = 'pending', assigned_at = NULL, scanner_id = NULL
+		SET status = 'pending', assigned_at = NULL, scanner_id = NULL, session_id = NULL
 		WHERE status = 'in_flight'
+		AND session_id IS NULL
 		AND assigned_at < NOW() - $1::interval
 	`, timeout.String())
+	if err != nil {
+		return 0, err
+	}
+	return int(result.RowsAffected()), nil
+}
+
+// ResetBatchesFromDeadSessions resets batches from sessions that haven't heartbeated.
+// This is more accurate than time-based reset because it only releases batches
+// from scanners that are actually dead (not heartbeating), not just slow.
+func (db *DB) ResetBatchesFromDeadSessions(ctx context.Context, heartbeatTimeout time.Duration) (int, error) {
+	result, err := db.Pool.Exec(ctx, `
+		UPDATE scan_batches b
+		SET status = 'pending', assigned_at = NULL, scanner_id = NULL, session_id = NULL
+		FROM scanner_sessions s
+		WHERE b.session_id = s.id
+		AND b.status = 'in_flight'
+		AND s.last_heartbeat < NOW() - $1::interval
+	`, heartbeatTimeout.String())
 	if err != nil {
 		return 0, err
 	}

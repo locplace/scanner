@@ -161,3 +161,42 @@ func (db *DB) CountActiveClients(ctx context.Context, timeout time.Duration) (in
 	`, timeout.String()).Scan(&count)
 	return count, err
 }
+
+// ScannerSession represents an individual scanner instance.
+// Multiple sessions can share the same client (token).
+type ScannerSession struct {
+	ID            string
+	ClientID      string
+	CreatedAt     time.Time
+	LastHeartbeat time.Time
+}
+
+// UpsertSession creates or updates a scanner session.
+// This is called when a scanner requests a batch or sends a heartbeat.
+// Returns the client_id for the session (used for backwards compat in batches).
+func (db *DB) UpsertSession(ctx context.Context, clientID, sessionID string) error {
+	_, err := db.Pool.Exec(ctx, `
+		INSERT INTO scanner_sessions (id, client_id, last_heartbeat)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (id) DO UPDATE SET last_heartbeat = NOW()
+	`, sessionID, clientID)
+	return err
+}
+
+// UpdateSessionHeartbeat updates a session's last_heartbeat timestamp.
+func (db *DB) UpdateSessionHeartbeat(ctx context.Context, sessionID string) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE scanner_sessions SET last_heartbeat = NOW() WHERE id = $1
+	`, sessionID)
+	return err
+}
+
+// CountActiveSessions returns the number of sessions with recent heartbeats.
+func (db *DB) CountActiveSessions(ctx context.Context, timeout time.Duration) (int, error) {
+	var count int
+	err := db.Pool.QueryRow(ctx, `
+		SELECT COUNT(DISTINCT id) FROM scanner_sessions
+		WHERE last_heartbeat > NOW() - $1::interval
+	`, timeout.String()).Scan(&count)
+	return count, err
+}

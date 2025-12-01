@@ -109,11 +109,15 @@ func (h *PublicHandlers) GetStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Scanner stats
-	activeClients, err := h.DB.CountActiveClients(ctx, h.HeartbeatTimeout)
+	// Scanner stats - count active sessions (individual scanner instances)
+	activeSessions, err := h.DB.CountActiveSessions(ctx, h.HeartbeatTimeout)
 	if err != nil {
-		writeError(w, "failed to get active clients", http.StatusInternalServerError)
-		return
+		// Fall back to counting active clients if sessions table doesn't exist yet
+		activeSessions, err = h.DB.CountActiveClients(ctx, h.HeartbeatTimeout)
+		if err != nil {
+			writeError(w, "failed to get active scanners", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// File stats
@@ -154,7 +158,7 @@ func (h *PublicHandlers) GetStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, api.StatsResponse{
 		TotalLOCRecords:          locCount,
 		UniqueRootDomainsWithLOC: uniqueWithLOC,
-		ActiveScanners:           activeClients,
+		ActiveScanners:           activeSessions,
 		DomainFiles: api.DomainFileStats{
 			Total:      fileStats.Total,
 			Pending:    fileStats.Pending,
