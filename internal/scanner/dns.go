@@ -31,26 +31,45 @@ func DefaultDNSConfig() DNSConfig {
 
 // DNSScanner performs DNS LOC record lookups.
 type DNSScanner struct {
-	config DNSConfig
+	config       DNSConfig
+	resolverPool chan *zdns.Resolver
+	poolSize     int
+	initOnce     sync.Once
+	initErr      error
+	mu           sync.Mutex
 }
 
 // NewDNSScanner creates a new DNS scanner.
 func NewDNSScanner(config DNSConfig) *DNSScanner {
-	return &DNSScanner{config: config}
+	// Pool size matches worker count to ensure each concurrent lookup can get a resolver
+	poolSize := config.Workers
+	if poolSize < 1 {
+		poolSize = 10
+	}
+	return &DNSScanner{
+		config:       config,
+		resolverPool: make(chan *zdns.Resolver, poolSize),
+		poolSize:     poolSize,
+	}
 }
 
-// LOCResult represents the result of a LOC lookup.
-type LOCResult struct {
-	FQDN      string
-	HasLOC    bool
-	RawRecord string
-	Error     error
+// initPool initializes the resolver pool (called once lazily)
+func (s *DNSScanner) initPool() error {
+	s.initOnce.Do(func() {
+		for i := 0; i < s.poolSize; i++ {
+			resolver, err := s.createResolver()
+			if err != nil {
+				s.initErr = err
+				return
+			}
+			s.resolverPool <- resolver
+		}
+	})
+	return s.initErr
 }
 
-// LookupLOC performs a LOC record lookup for a single domain.
-func (s *DNSScanner) LookupLOC(ctx context.Context, fqdn string) LOCResult {
-	result := LOCResult{FQDN: fqdn}
-
+// createResolver creates a new zdns resolver instance
+func (s *DNSScanner) createResolver() (*zdns.Resolver, error) {
 	// Build nameserver list
 	nameservers := make([]zdns.NameServer, len(s.config.Nameservers))
 	for i, ns := range s.config.Nameservers {
@@ -66,13 +85,59 @@ func (s *DNSScanner) LookupLOC(ctx context.Context, fqdn string) LOCResult {
 	config.Timeout = s.config.Timeout
 	config.IPVersionMode = zdns.IPv4Only
 
-	// Initialize resolver
-	resolver, err := zdns.InitResolver(config)
+	return zdns.InitResolver(config)
+}
+
+// getResolver borrows a resolver from the pool
+func (s *DNSScanner) getResolver() (*zdns.Resolver, error) {
+	if err := s.initPool(); err != nil {
+		return nil, err
+	}
+	return <-s.resolverPool, nil
+}
+
+// returnResolver returns a resolver to the pool
+func (s *DNSScanner) returnResolver(r *zdns.Resolver) {
+	select {
+	case s.resolverPool <- r:
+	default:
+		// Pool is full, close the resolver
+		r.Close()
+	}
+}
+
+// Close releases any resources held by the scanner.
+func (s *DNSScanner) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Drain and close all resolvers in the pool
+	close(s.resolverPool)
+	for resolver := range s.resolverPool {
+		resolver.Close()
+	}
+	return nil
+}
+
+// LOCResult represents the result of a LOC lookup.
+type LOCResult struct {
+	FQDN      string
+	HasLOC    bool
+	RawRecord string
+	Error     error
+}
+
+// LookupLOC performs a LOC record lookup for a single domain.
+func (s *DNSScanner) LookupLOC(ctx context.Context, fqdn string) LOCResult {
+	result := LOCResult{FQDN: fqdn}
+
+	// Borrow resolver from pool
+	resolver, err := s.getResolver()
 	if err != nil {
 		result.Error = err
 		return result
 	}
-	defer resolver.Close()
+	defer s.returnResolver(resolver)
 
 	// Create LOC query
 	question := &zdns.Question{
