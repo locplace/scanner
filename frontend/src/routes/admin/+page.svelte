@@ -733,4 +733,81 @@
 		font-family: monospace;
 		word-break: break-all;
 	}
+
+	/* Mobile responsiveness */
+	@media (max-width: 768px) {
+		.admin {
+			padding: 1rem;
+		}
+
+		header {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 1rem;
+		}
+
+		header h1 {
+			font-size: 1.5rem;
+		}
+
+		/* Make tables scrollable */
+		table {
+			display: block;
+			overflow-x: auto;
+			white-space: nowrap;
+		}
+
+		th,
+		td {
+			padding: 0.5rem;
+			font-size: 0.875rem;
+		}
+
+		/* Stack form elements */
+		.create-set-form,
+		.inline-form {
+			flex-direction: column;
+		}
+
+		.create-set-form input,
+		.inline-form input {
+			width: 100%;
+		}
+
+		.create-set-form button,
+		.inline-form button {
+			width: 100%;
+		}
+
+		/* Stack action buttons */
+		.actions {
+			flex-direction: column;
+			gap: 0.25rem;
+		}
+
+		.actions button {
+			width: 100%;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.admin {
+			padding: 0.75rem;
+		}
+
+		h2 {
+			font-size: 1.25rem;
+		}
+
+		th,
+		td {
+			padding: 0.375rem;
+			font-size: 0.8rem;
+		}
+
+		button {
+			padding: 0.5rem 0.75rem;
+			font-size: 0.875rem;
+		}
+	}
 </style>

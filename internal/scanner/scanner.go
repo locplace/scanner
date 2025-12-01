@@ -91,6 +91,9 @@ func (s *Scanner) runHeartbeat(ctx context.Context) {
 
 	log.Printf("Heartbeat started: interval=%s", s.config.HeartbeatInterval)
 
+	var consecutiveErrors int
+	var lastErrorLogged time.Time
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -99,8 +102,17 @@ func (s *Scanner) runHeartbeat(ctx context.Context) {
 		case <-ticker.C:
 			activeDomains := s.tracker.List()
 			if err := s.coordinator.Heartbeat(ctx, activeDomains); err != nil {
-				log.Printf("Heartbeat error: %v", err)
+				consecutiveErrors++
+				// Log on first error, then rate limit to every 30 seconds
+				if consecutiveErrors == 1 || time.Since(lastErrorLogged) > 30*time.Second {
+					log.Printf("Heartbeat error: %v (consecutive errors: %d)", err, consecutiveErrors)
+					lastErrorLogged = time.Now()
+				}
 			} else {
+				if consecutiveErrors > 0 {
+					log.Printf("Heartbeat recovered after %d consecutive errors", consecutiveErrors)
+				}
+				consecutiveErrors = 0
 				log.Printf("Heartbeat sent: %d active domains", len(activeDomains))
 			}
 		}

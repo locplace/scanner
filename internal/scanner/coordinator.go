@@ -103,6 +103,7 @@ func (c *CoordinatorClient) Heartbeat(ctx context.Context, activeDomains []strin
 }
 
 // SubmitResults sends scan results to the coordinator.
+// Uses a longer timeout than other requests since large result sets may take time to process.
 func (c *CoordinatorClient) SubmitResults(ctx context.Context, results []api.DomainResult) error {
 	req := api.SubmitResultsRequest{Results: results}
 	body, err := json.Marshal(req)
@@ -110,7 +111,12 @@ func (c *CoordinatorClient) SubmitResults(ctx context.Context, results []api.Dom
 		return err
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/api/scanner/results", bytes.NewReader(body))
+	// Use a longer timeout for submitting results (2 minutes instead of 30s)
+	// Large subdomain scans can produce significant payloads
+	submitCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	httpReq, err := http.NewRequestWithContext(submitCtx, "POST", c.BaseURL+"/api/scanner/results", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

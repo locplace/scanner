@@ -43,6 +43,7 @@ type Worker struct {
 
 	// Circuit breaker state
 	consecutiveErrors int
+	lastErrorLogged   time.Time // Rate limit error logging
 }
 
 // NewWorker creates a new worker.
@@ -70,13 +71,23 @@ func (w *Worker) backoffDelay() time.Duration {
 	return time.Duration(delay)
 }
 
-// recordError increments the consecutive error count.
-func (w *Worker) recordError() {
+// recordError increments the consecutive error count and logs if appropriate.
+// Returns true if the error should be logged (rate limited to once per 30 seconds).
+func (w *Worker) recordError() bool {
 	w.consecutiveErrors++
+	// Log on first error, then rate limit to every 30 seconds
+	if w.consecutiveErrors == 1 || time.Since(w.lastErrorLogged) > 30*time.Second {
+		w.lastErrorLogged = time.Now()
+		return true
+	}
+	return false
 }
 
-// resetErrors resets the consecutive error count.
+// resetErrors resets the consecutive error count and logs recovery if needed.
 func (w *Worker) resetErrors() {
+	if w.consecutiveErrors > 0 {
+		log.Printf("[Worker %d] Connection recovered after %d consecutive errors", w.ID, w.consecutiveErrors)
+	}
 	w.consecutiveErrors = 0
 }
 
@@ -106,9 +117,10 @@ func (w *Worker) Run(ctx context.Context) {
 		// Get domains to scan
 		domains, err := w.Coordinator.GetJobs(ctx, w.Config.BatchSize)
 		if err != nil {
-			w.recordError()
-			log.Printf("[Worker %d] Failed to get jobs: %v (consecutive errors: %d)",
-				w.ID, err, w.consecutiveErrors)
+			if w.recordError() {
+				log.Printf("[Worker %d] Failed to get jobs: %v (consecutive errors: %d)",
+					w.ID, err, w.consecutiveErrors)
+			}
 			continue
 		}
 
@@ -143,9 +155,10 @@ func (w *Worker) Run(ctx context.Context) {
 
 			// Submit result immediately
 			if err := w.Coordinator.SubmitResults(ctx, []api.DomainResult{result}); err != nil {
-				w.recordError()
-				log.Printf("[Worker %d] Failed to submit results for %s: %v (consecutive errors: %d)",
-					w.ID, domain, err, w.consecutiveErrors)
+				if w.recordError() {
+					log.Printf("[Worker %d] Failed to submit results for %s: %v (consecutive errors: %d)",
+						w.ID, domain, err, w.consecutiveErrors)
+				}
 			} else {
 				w.resetErrors()
 				log.Printf("[Worker %d] Submitted results for %s: %d subdomains, %d LOC records",
