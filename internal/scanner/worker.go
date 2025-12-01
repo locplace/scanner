@@ -40,13 +40,14 @@ type Worker struct {
 	Tracker     *DomainTracker
 	Subfinder   *Subfinder
 	DNS         *DNSScanner
+	ShutdownCh  <-chan struct{}
 
 	// Circuit breaker state
 	consecutiveErrors int
 }
 
 // NewWorker creates a new worker.
-func NewWorker(id int, config WorkerConfig, coordinator *CoordinatorClient, tracker *DomainTracker) *Worker {
+func NewWorker(id int, config WorkerConfig, coordinator *CoordinatorClient, tracker *DomainTracker, shutdownCh <-chan struct{}) *Worker {
 	return &Worker{
 		ID:          id,
 		Config:      config,
@@ -54,6 +55,7 @@ func NewWorker(id int, config WorkerConfig, coordinator *CoordinatorClient, trac
 		Tracker:     tracker,
 		Subfinder:   NewSubfinder(config.SubfinderConfig),
 		DNS:         NewDNSScanner(config.DNSConfig),
+		ShutdownCh:  shutdownCh,
 	}
 }
 
@@ -90,7 +92,11 @@ func (w *Worker) Run(ctx context.Context) {
 	log.Printf("[Worker %d] Started", w.ID)
 
 	for {
+		// Check if we should stop getting new jobs (graceful shutdown or context canceled)
 		select {
+		case <-w.ShutdownCh:
+			log.Printf("[Worker %d] Shutdown signal received, exiting", w.ID)
+			return
 		case <-ctx.Done():
 			log.Printf("[Worker %d] Stopped", w.ID)
 			return
@@ -102,6 +108,9 @@ func (w *Worker) Run(ctx context.Context) {
 			log.Printf("[Worker %d] Backing off for %v after %d consecutive errors",
 				w.ID, backoff, w.consecutiveErrors)
 			select {
+			case <-w.ShutdownCh:
+				log.Printf("[Worker %d] Shutdown signal received during backoff, exiting", w.ID)
+				return
 			case <-ctx.Done():
 				return
 			case <-time.After(backoff):
@@ -128,6 +137,9 @@ func (w *Worker) Run(ctx context.Context) {
 			delay := time.Duration(float64(w.Config.EmptyQueueDelay) * jitter)
 			log.Printf("[Worker %d] No domains available, waiting %s...", w.ID, delay.Round(time.Second))
 			select {
+			case <-w.ShutdownCh:
+				log.Printf("[Worker %d] Shutdown signal received, exiting", w.ID)
+				return
 			case <-ctx.Done():
 				return
 			case <-time.After(delay):

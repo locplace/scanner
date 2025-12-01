@@ -36,6 +36,10 @@ type Scanner struct {
 	config      Config
 	coordinator *CoordinatorClient
 	tracker     *DomainTracker
+
+	// Graceful shutdown
+	shutdownCh   chan struct{}
+	shutdownOnce sync.Once
 }
 
 // New creates a new scanner.
@@ -44,7 +48,16 @@ func New(config Config) *Scanner {
 		config:      config,
 		coordinator: NewCoordinatorClient(config.CoordinatorURL, config.Token),
 		tracker:     NewDomainTracker(),
+		shutdownCh:  make(chan struct{}),
 	}
+}
+
+// InitiateShutdown signals workers to stop fetching new jobs.
+// Workers will finish their current batch before exiting.
+func (s *Scanner) InitiateShutdown() {
+	s.shutdownOnce.Do(func() {
+		close(s.shutdownCh)
+	})
 }
 
 // Run starts the scanner. It blocks until the context is canceled.
@@ -71,7 +84,7 @@ func (s *Scanner) Run(ctx context.Context) error {
 
 	for i := 0; i < s.config.WorkerCount; i++ {
 		wg.Add(1)
-		worker := NewWorker(i+1, workerConfig, s.coordinator, s.tracker)
+		worker := NewWorker(i+1, workerConfig, s.coordinator, s.tracker, s.shutdownCh)
 		go func() {
 			defer wg.Done()
 			worker.Run(ctx)

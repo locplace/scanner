@@ -95,7 +95,7 @@ func main() {
 	select {
 	case sig := <-sigChan:
 		log.Printf("Received %v signal, initiating graceful shutdown...", sig)
-		cancel()
+		s.InitiateShutdown() // Signal workers to stop fetching new jobs
 
 		// Wait for scanner to finish with timeout
 		select {
@@ -103,8 +103,10 @@ func main() {
 			log.Println("Scanner stopped gracefully")
 		case <-time.After(30 * time.Second):
 			log.Println("Shutdown timeout exceeded, forcing exit")
+			cancel() // Force cancel context
 		case sig := <-sigChan:
 			log.Printf("Received second %v signal, forcing exit", sig)
+			cancel() // Force cancel context
 		}
 
 	case err := <-done:
