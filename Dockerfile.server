@@ -9,8 +9,6 @@ RUN npm ci
 
 # Copy frontend source and build
 COPY frontend/ ./
-ARG VITE_PROTOMAPS_API_KEY
-ENV VITE_PROTOMAPS_API_KEY=$VITE_PROTOMAPS_API_KEY
 RUN npm run build
 
 # Stage 2: Build Go binary
