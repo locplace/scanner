@@ -84,7 +84,11 @@ func (w *Worker) resetErrors() int {
 // Run starts the worker loop. It blocks until the context is canceled.
 func (w *Worker) Run(ctx context.Context) {
 	log.Printf("[Worker %d] Started", w.ID)
-	defer w.DNS.Close() // Clean up DNS resolver resources
+	defer func() {
+		if err := w.DNS.Close(); err != nil {
+			log.Printf("[Worker %d] Error closing DNS resolver: %v", w.ID, err)
+		}
+	}() // Clean up DNS resolver resources
 
 	for {
 		// Check if we should stop getting new jobs (graceful shutdown or context canceled)
