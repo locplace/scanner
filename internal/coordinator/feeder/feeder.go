@@ -97,7 +97,7 @@ func (f *Feeder) Run(ctx context.Context) {
 
 		log.Printf("Feeder: processing file %s (resuming from line %d)", file.Filename, file.ProcessedLines)
 
-		_, err = f.processFile(ctx, file)
+		err = f.processFile(ctx, file)
 		if err != nil {
 			if ctx.Err() != nil {
 				return // Context canceled
@@ -112,22 +112,21 @@ func (f *Feeder) Run(ctx context.Context) {
 }
 
 // processFile downloads and processes a single domain file.
-// Returns the number of batches created during this run.
-func (f *Feeder) processFile(ctx context.Context, file *db.DomainFile) (int, error) {
+func (f *Feeder) processFile(ctx context.Context, file *db.DomainFile) error {
 	log.Printf("Feeder: downloading %s via GitHub web interface", file.Filename)
 
 	// Use the web-based download which may bypass LFS quota issues
 	// The file.Filename is like "data/afghanistan/domain2multi-af00.txt.xz"
 	body, err := f.LFSClient.DownloadViaWeb(ctx, "tb0hdan", "domains", "master", file.Filename)
 	if err != nil {
-		return 0, fmt.Errorf("web download: %w", err)
+		return fmt.Errorf("web download: %w", err)
 	}
 	defer body.Close() //nolint:errcheck // Close error not actionable
 
 	// Create XZ decompressor
 	xzReader, err := xz.NewReader(body)
 	if err != nil {
-		return 0, fmt.Errorf("xz reader: %w", err)
+		return fmt.Errorf("xz reader: %w", err)
 	}
 
 	// Process lines
@@ -146,7 +145,7 @@ func (f *Feeder) processFile(ctx context.Context, file *db.DomainFile) (int, err
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
-			return batchCount, ctx.Err()
+			return ctx.Err()
 		default:
 		}
 
@@ -171,8 +170,8 @@ func (f *Feeder) processFile(ctx context.Context, file *db.DomainFile) (int, err
 
 		// Batch is full, insert it
 		if len(batch) >= f.Config.BatchSize {
-			if err := f.insertBatch(ctx, file.ID, batchStart, lineNum, batch); err != nil {
-				return batchCount, fmt.Errorf("insert batch: %w", err)
+			if insertErr := f.insertBatch(ctx, file.ID, batchStart, lineNum, batch); insertErr != nil {
+				return fmt.Errorf("insert batch: %w", insertErr)
 			}
 			batchCount++
 			batch = batch[:0]
@@ -184,14 +183,14 @@ func (f *Feeder) processFile(ctx context.Context, file *db.DomainFile) (int, err
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return batchCount, fmt.Errorf("scan: %w", err)
+	if scanErr := scanner.Err(); scanErr != nil {
+		return fmt.Errorf("scan: %w", scanErr)
 	}
 
 	// Insert final partial batch
 	if len(batch) > 0 {
-		if err := f.insertBatch(ctx, file.ID, batchStart, lineNum, batch); err != nil {
-			return batchCount, fmt.Errorf("insert final batch: %w", err)
+		if insertErr := f.insertBatch(ctx, file.ID, batchStart, lineNum, batch); insertErr != nil {
+			return fmt.Errorf("insert final batch: %w", insertErr)
 		}
 		batchCount++
 	}
@@ -199,8 +198,8 @@ func (f *Feeder) processFile(ctx context.Context, file *db.DomainFile) (int, err
 	log.Printf("Feeder: %s feeding done: %d batches created", file.Filename, batchCount)
 
 	// Mark feeding complete now that we've read all lines
-	if err := f.DB.MarkFeedingComplete(ctx, file.ID); err != nil {
-		return batchCount, fmt.Errorf("mark feeding complete: %w", err)
+	if markErr := f.DB.MarkFeedingComplete(ctx, file.ID); markErr != nil {
+		return fmt.Errorf("mark feeding complete: %w", markErr)
 	}
 
 	// Try to mark file complete if all batches are already done
@@ -214,7 +213,7 @@ func (f *Feeder) processFile(ctx context.Context, file *db.DomainFile) (int, err
 		log.Printf("Feeder: %s has %d batches pending, moving to next file", file.Filename, batchCount)
 	}
 
-	return batchCount, nil
+	return nil
 }
 
 // insertBatch waits for queue capacity and inserts a batch.
@@ -258,8 +257,7 @@ func (f *Feeder) ProcessFileByID(ctx context.Context, fileID int) error {
 		return fmt.Errorf("get file: %w", err)
 	}
 
-	_, err = f.processFile(ctx, &file)
-	return err
+	return f.processFile(ctx, &file)
 }
 
 // WaitForCapacity blocks until there's room in the batch queue.
