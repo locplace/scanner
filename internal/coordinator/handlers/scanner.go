@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"golang.org/x/net/publicsuffix"
 
@@ -137,7 +138,7 @@ func (h *ScannerHandlers) SubmitResults(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Mark batch as complete
-	fileID, err := h.DB.CompleteBatch(r.Context(), req.BatchID)
+	fileID, assignedAt, err := h.DB.CompleteBatch(r.Context(), req.BatchID)
 	if err != nil {
 		writeError(w, "failed to complete batch", http.StatusInternalServerError)
 		return
@@ -154,6 +155,10 @@ func (h *ScannerHandlers) SubmitResults(w http.ResponseWriter, r *http.Request) 
 
 	// Update metrics
 	metrics.ScanCompletionsTotal.Inc()
+	if assignedAt != nil {
+		duration := time.Since(*assignedAt).Seconds()
+		metrics.BatchProcessingDuration.Observe(duration)
+	}
 	metrics.DomainsCheckedTotal.Add(float64(req.DomainsChecked))
 	metrics.LOCDiscoveriesTotal.Add(float64(accepted))
 

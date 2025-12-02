@@ -128,26 +128,28 @@ func (db *DB) ClaimBatch(ctx context.Context, scannerID, sessionID string) (*Sca
 }
 
 // CompleteBatch marks a batch as complete (deletes it) and increments file counter.
-func (db *DB) CompleteBatch(ctx context.Context, batchID int64) (int, error) {
+// Returns the file ID and the time the batch was assigned (for duration tracking).
+func (db *DB) CompleteBatch(ctx context.Context, batchID int64) (int, *time.Time, error) {
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	// Get file_id before deleting
+	// Get file_id and assigned_at before deleting
 	var fileID int
+	var assignedAt *time.Time
 	err = tx.QueryRow(ctx, `
-		SELECT file_id FROM scan_batches WHERE id = $1
-	`, batchID).Scan(&fileID)
+		SELECT file_id, assigned_at FROM scan_batches WHERE id = $1
+	`, batchID).Scan(&fileID, &assignedAt)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	// Delete batch
 	_, err = tx.Exec(ctx, `DELETE FROM scan_batches WHERE id = $1`, batchID)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	// Increment file counter
@@ -157,14 +159,14 @@ func (db *DB) CompleteBatch(ctx context.Context, batchID int64) (int, error) {
 		WHERE id = $1
 	`, fileID)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
-	return fileID, nil
+	return fileID, assignedAt, nil
 }
 
 // ResetStaleBatches resets batches that have been in_flight too long.

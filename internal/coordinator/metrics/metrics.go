@@ -132,6 +132,13 @@ var (
 		Help: "Total number of batch completions (counter). Use rate() for batches/second.",
 	})
 
+	// BatchProcessingDuration tracks time from batch claim to completion.
+	BatchProcessingDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "locplace_batch_processing_duration_seconds",
+		Help:    "Time between batch claim and result submission in seconds.",
+		Buckets: []float64{1, 2, 5, 10, 15, 20, 30, 45, 60, 120},
+	})
+
 	// DomainsCheckedTotal increments by the number of domains checked per batch.
 	DomainsCheckedTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "locplace_domains_checked_total",
@@ -224,6 +231,7 @@ func Register() {
 
 	// Counters
 	prometheus.MustRegister(ScanCompletionsTotal)
+	prometheus.MustRegister(BatchProcessingDuration)
 	prometheus.MustRegister(DomainsCheckedTotal)
 	prometheus.MustRegister(LOCDiscoveriesTotal)
 	prometheus.MustRegister(ReaperRunsTotal)
