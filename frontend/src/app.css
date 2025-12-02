@@ -33,11 +33,34 @@ body {
 	max-width: 300px;
 }
 
+.maplibregl-popup-close-button {
+	font-size: 20px;
+	padding: 4px 8px;
+	color: #666;
+	right: 4px;
+	top: 4px;
+}
+
+.maplibregl-popup-close-button:hover {
+	color: #333;
+	background: rgba(0, 0, 0, 0.05);
+	border-radius: 4px;
+}
+
 @media (prefers-color-scheme: dark) {
 	.maplibregl-popup-content {
 		background: #1a1a1a;
 		color: #e0e0e0;
 		box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+	}
+
+	.maplibregl-popup-close-button {
+		color: #888;
+	}
+
+	.maplibregl-popup-close-button:hover {
+		color: #fff;
+		background: rgba(255, 255, 255, 0.1);
 	}
 
 	/* Handle popup tip for all anchor positions */
