@@ -2,7 +2,9 @@ package scanner
 
 import (
 	"context"
+	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -130,6 +132,14 @@ type LOCResult struct {
 // LookupLOC performs a LOC record lookup for a single domain.
 func (s *DNSScanner) LookupLOC(ctx context.Context, fqdn string) LOCResult {
 	result := LOCResult{FQDN: fqdn}
+
+	// Sanitize input: strip trailing dot to prevent zdns fatal error
+	// ("name already has trailing dot")
+	if strings.HasSuffix(fqdn, ".") {
+		log.Printf("Warning: domain %q has trailing dot, stripping", fqdn)
+		fqdn = strings.TrimSuffix(fqdn, ".")
+		result.FQDN = fqdn
+	}
 
 	// Borrow resolver from pool
 	resolver, err := s.getResolver()
