@@ -29,6 +29,14 @@ jobs:
         run: npm ci
         working-directory: frontend
 
+      - name: Lint frontend (ESLint)
+        run: npm run lint
+        working-directory: frontend
+
+      - name: Check formatting (Prettier)
+        run: npm run format:check
+        working-directory: frontend
+
       - name: Check frontend (TypeScript/Svelte)
         run: npm run check
         working-directory: frontend
@@ -65,8 +73,16 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Run frontend tests
+        run: npm run test
+        working-directory: frontend
+
       - name: Build frontend
-        run: npm ci && npm run build
+        run: npm run build
         working-directory: frontend
 
       - name: Set up Go
@@ -77,7 +93,7 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Run tests
+      - name: Run Go tests
         run: go test -v -race -coverprofile=coverage.out ./...
 
       - name: Upload coverage
