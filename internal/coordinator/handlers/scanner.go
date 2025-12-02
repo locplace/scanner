@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -124,6 +125,12 @@ func (h *ScannerHandlers) SubmitResults(w http.ResponseWriter, r *http.Request) 
 	// Store LOC records
 	accepted := 0
 	for _, loc := range req.LOCRecords {
+		// Validate coordinates before attempting insert
+		if loc.Latitude < -90 || loc.Latitude > 90 || loc.Longitude < -180 || loc.Longitude > 180 {
+			log.Printf("Rejected invalid coordinates for %s: lat=%f, lon=%f", loc.FQDN, loc.Latitude, loc.Longitude)
+			continue
+		}
+
 		// Extract root domain from FQDN
 		rootDomain, err := publicsuffix.EffectiveTLDPlusOne(loc.FQDN)
 		if err != nil {
@@ -132,6 +139,7 @@ func (h *ScannerHandlers) SubmitResults(w http.ResponseWriter, r *http.Request) 
 		}
 
 		if err := h.DB.UpsertLOCRecord(r.Context(), rootDomain, loc); err != nil {
+			log.Printf("Failed to insert LOC record for %s: %v", loc.FQDN, err)
 			continue
 		}
 		accepted++
