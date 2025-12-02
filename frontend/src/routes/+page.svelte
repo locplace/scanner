@@ -28,8 +28,15 @@
 		feature: GeoJSON.Feature;
 		lastSeenAt: Date;
 	}
+	interface LocationEntry {
+		rootDomain: string;
+		feature: GeoJSON.Feature;
+		lastSeenAt: Date;
+		fqdnCount: number;
+	}
 	let fqdnIndex: FQDNEntry[] = [];
-	let displayedFQDNs: FQDNEntry[] = [];
+	let locationIndex: LocationEntry[] = [];
+	let displayedEntries: (FQDNEntry | LocationEntry)[] = [];
 
 	async function loadStats() {
 		try {
@@ -46,7 +53,7 @@
 		isSearchOpen = !isSearchOpen;
 	}
 
-	function buildFQDNIndex(geojson: GeoJSON.FeatureCollection) {
+	function buildFQDNIndex(geojson: GeoJSON.FeatureCollection): FQDNEntry[] {
 		const entries: FQDNEntry[] = [];
 		for (const feature of geojson.features) {
 			const props = feature.properties;
@@ -56,6 +63,23 @@
 			for (const fqdn of fqdns) {
 				entries.push({ fqdn, feature, lastSeenAt });
 			}
+		}
+		// Sort by lastSeenAt descending (newest first)
+		entries.sort((a, b) => b.lastSeenAt.getTime() - a.lastSeenAt.getTime());
+		return entries;
+	}
+
+	function buildLocationIndex(geojson: GeoJSON.FeatureCollection): LocationEntry[] {
+		const entries: LocationEntry[] = [];
+		for (const feature of geojson.features) {
+			const props = feature.properties;
+			const rootDomains = typeof props?.root_domains === 'string' ? JSON.parse(props.root_domains) : props?.root_domains || [];
+			const fqdns = typeof props?.fqdns === 'string' ? JSON.parse(props.fqdns) : props?.fqdns || [];
+			const lastSeenAt = props?.last_seen_at ? new Date(props.last_seen_at) : new Date(0);
+
+			// Use first root domain as representative
+			const rootDomain = rootDomains[0] || fqdns[0] || 'unknown';
+			entries.push({ rootDomain, feature, lastSeenAt, fqdnCount: fqdns.length });
 		}
 		// Sort by lastSeenAt descending (newest first)
 		entries.sort((a, b) => b.lastSeenAt.getTime() - a.lastSeenAt.getTime());
@@ -77,17 +101,17 @@
 		const lowerQuery = query.toLowerCase().trim();
 
 		if (!lowerQuery) {
-			// No query: show recent FQDNs, all points on map
-			displayedFQDNs = fqdnIndex.slice(0, 50);
+			// No query: show recent locations (deduplicated by feature), all points on map
+			displayedEntries = locationIndex.slice(0, 50);
 			if (fullGeoJSON && map.getSource('loc-records')) {
 				(map.getSource('loc-records') as maplibregl.GeoJSONSource).setData(fullGeoJSON);
 			}
 		} else {
-			// Filter FQDNs
+			// Filter FQDNs (search matches individual FQDNs)
 			const matchingEntries = fqdnIndex.filter(entry =>
 				entry.fqdn.toLowerCase().includes(lowerQuery)
 			);
-			displayedFQDNs = matchingEntries.slice(0, 50);
+			displayedEntries = matchingEntries.slice(0, 50);
 
 			// Filter map to only show features with matching FQDNs
 			if (fullGeoJSON && map.getSource('loc-records')) {
@@ -101,7 +125,7 @@
 		}
 	}
 
-	function selectFQDN(entry: FQDNEntry) {
+	function selectEntry(entry: FQDNEntry | LocationEntry) {
 		const coords = (entry.feature.geometry as GeoJSON.Point).coordinates as [number, number];
 		const props = entry.feature.properties;
 
@@ -201,10 +225,11 @@
 
 			const geojson: GeoJSON.FeatureCollection = await response.json();
 
-			// Store for filtering and build search index
+			// Store for filtering and build search indices
 			fullGeoJSON = geojson;
 			fqdnIndex = buildFQDNIndex(geojson);
-			displayedFQDNs = fqdnIndex.slice(0, 50);
+			locationIndex = buildLocationIndex(geojson);
+			displayedEntries = locationIndex.slice(0, 50);
 
 			// Add or update the source
 			if (map.getSource('loc-records')) {
@@ -349,12 +374,12 @@
 				{/if}
 			</div>
 			<div class="fqdn-list">
-				{#if displayedFQDNs.length === 0}
+				{#if displayedEntries.length === 0}
 					<div class="no-results">No matching FQDNs</div>
 				{:else}
-					{#each displayedFQDNs as entry}
-						<button class="fqdn-item" onclick={() => selectFQDN(entry)}>
-							{entry.fqdn}
+					{#each displayedEntries as entry}
+						<button class="fqdn-item" onclick={() => selectEntry(entry)}>
+							{'fqdn' in entry ? entry.fqdn : entry.rootDomain}
 						</button>
 					{/each}
 				{/if}
