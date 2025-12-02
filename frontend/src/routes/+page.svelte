@@ -2,6 +2,10 @@
 	import { onMount, mount } from 'svelte';
 	import maplibregl from 'maplibre-gl';
 	import MapPopup from '$lib/components/MapPopup.svelte';
+	import CollapsiblePanel from '$lib/components/CollapsiblePanel.svelte';
+	import type { FQDNEntry, LocationEntry, PublicStats, SearchEntry } from '$lib/types';
+	import { isFQDNEntry } from '$lib/types';
+	import { buildFQDNIndex, buildLocationIndex } from '$lib/search';
 
 	let mapContainer: HTMLDivElement;
 	let map: maplibregl.Map;
@@ -13,30 +17,16 @@
 	let isDarkTheme = false;
 
 	// Stats
-	let stats: {
-		total_loc_records: number;
-		unique_root_domains_with_loc: number;
-	} | null = null;
+	let stats: PublicStats | null = null;
 
 	// Search state
 	let searchQuery = '';
 	let searchTimeout: ReturnType<typeof setTimeout>;
 	let fullGeoJSON: GeoJSON.FeatureCollection | null = null;
 
-	interface FQDNEntry {
-		fqdn: string;
-		feature: GeoJSON.Feature;
-		lastSeenAt: Date;
-	}
-	interface LocationEntry {
-		rootDomain: string;
-		feature: GeoJSON.Feature;
-		lastSeenAt: Date;
-		fqdnCount: number;
-	}
 	let fqdnIndex: FQDNEntry[] = [];
 	let locationIndex: LocationEntry[] = [];
-	let displayedEntries: (FQDNEntry | LocationEntry)[] = [];
+	let displayedEntries: SearchEntry[] = [];
 
 	async function loadStats() {
 		try {
@@ -51,39 +41,6 @@
 
 	function toggleSearch() {
 		isSearchOpen = !isSearchOpen;
-	}
-
-	function buildFQDNIndex(geojson: GeoJSON.FeatureCollection): FQDNEntry[] {
-		const entries: FQDNEntry[] = [];
-		for (const feature of geojson.features) {
-			const props = feature.properties;
-			const fqdns = typeof props?.fqdns === 'string' ? JSON.parse(props.fqdns) : props?.fqdns || [];
-			const lastSeenAt = props?.last_seen_at ? new Date(props.last_seen_at) : new Date(0);
-
-			for (const fqdn of fqdns) {
-				entries.push({ fqdn, feature, lastSeenAt });
-			}
-		}
-		// Sort by lastSeenAt descending (newest first)
-		entries.sort((a, b) => b.lastSeenAt.getTime() - a.lastSeenAt.getTime());
-		return entries;
-	}
-
-	function buildLocationIndex(geojson: GeoJSON.FeatureCollection): LocationEntry[] {
-		const entries: LocationEntry[] = [];
-		for (const feature of geojson.features) {
-			const props = feature.properties;
-			const rootDomains = typeof props?.root_domains === 'string' ? JSON.parse(props.root_domains) : props?.root_domains || [];
-			const fqdns = typeof props?.fqdns === 'string' ? JSON.parse(props.fqdns) : props?.fqdns || [];
-			const lastSeenAt = props?.last_seen_at ? new Date(props.last_seen_at) : new Date(0);
-
-			// Use first root domain as representative
-			const rootDomain = rootDomains[0] || fqdns[0] || 'unknown';
-			entries.push({ rootDomain, feature, lastSeenAt, fqdnCount: fqdns.length });
-		}
-		// Sort by lastSeenAt descending (newest first)
-		entries.sort((a, b) => b.lastSeenAt.getTime() - a.lastSeenAt.getTime());
-		return entries;
 	}
 
 	function handleSearchInput(e: Event) {
@@ -108,17 +65,17 @@
 			}
 		} else {
 			// Filter FQDNs (search matches individual FQDNs)
-			const matchingEntries = fqdnIndex.filter(entry =>
+			const matchingEntries = fqdnIndex.filter((entry) =>
 				entry.fqdn.toLowerCase().includes(lowerQuery)
 			);
 			displayedEntries = matchingEntries.slice(0, 50);
 
 			// Filter map to only show features with matching FQDNs
 			if (fullGeoJSON && map.getSource('loc-records')) {
-				const matchingFeatures = new Set(matchingEntries.map(e => e.feature));
+				const matchingFeatures = new Set(matchingEntries.map((e) => e.feature));
 				const filteredGeoJSON: GeoJSON.FeatureCollection = {
 					type: 'FeatureCollection',
-					features: fullGeoJSON.features.filter(f => matchingFeatures.has(f))
+					features: fullGeoJSON.features.filter((f) => matchingFeatures.has(f))
 				};
 				(map.getSource('loc-records') as maplibregl.GeoJSONSource).setData(filteredGeoJSON);
 			}
@@ -139,7 +96,10 @@
 		// Open popup after flying
 		setTimeout(() => {
 			const fqdns = typeof props?.fqdns === 'string' ? JSON.parse(props.fqdns) : props?.fqdns || [];
-			const rootDomains = typeof props?.root_domains === 'string' ? JSON.parse(props.root_domains) : props?.root_domains || [];
+			const rootDomains =
+				typeof props?.root_domains === 'string'
+					? JSON.parse(props.root_domains)
+					: props?.root_domains || [];
 
 			const container = document.createElement('div');
 			mount(MapPopup, {
@@ -156,12 +116,9 @@
 
 			// Close existing popups
 			const existingPopups = document.querySelectorAll('.maplibregl-popup');
-			existingPopups.forEach(p => p.remove());
+			existingPopups.forEach((p) => p.remove());
 
-			new maplibregl.Popup()
-				.setLngLat(coords)
-				.setDOMContent(container)
-				.addTo(map);
+			new maplibregl.Popup().setLngLat(coords).setDOMContent(container).addTo(map);
 		}, 1000);
 	}
 
@@ -263,8 +220,12 @@
 				const coords = (feature.geometry as GeoJSON.Point).coordinates;
 
 				// Parse arrays - they come as JSON strings from MapLibre
-				const fqdns = typeof props?.fqdns === 'string' ? JSON.parse(props.fqdns) : props?.fqdns || [];
-				const rootDomains = typeof props?.root_domains === 'string' ? JSON.parse(props.root_domains) : props?.root_domains || [];
+				const fqdns =
+					typeof props?.fqdns === 'string' ? JSON.parse(props.fqdns) : props?.fqdns || [];
+				const rootDomains =
+					typeof props?.root_domains === 'string'
+						? JSON.parse(props.root_domains)
+						: props?.root_domains || [];
 
 				const container = document.createElement('div');
 				mount(MapPopup, {
@@ -310,39 +271,35 @@
 
 <div id="map" bind:this={mapContainer}></div>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="panels-container" class:dark={isDarkTheme}>
-	<div class="panel" class:collapsed={!isAboutOpen}>
-		<div class="panel-header" onclick={toggleAbout}>
-			<span class="title">About LOC.place</span>
-			<span class="toggle-icon">{isAboutOpen ? '−' : '+'}</span>
-		</div>
-		<div class="panel-content">
-			<p>
-				As one of the old, core pieces internet infrastructure, the DNS system has many obscure and forgotten corners.
-				One of those is the <a href="https://en.wikipedia.org/wiki/LOC_record">LOC record</a>, which ties a domain name
-				to a set of geographical coordinates.
-				There are only a few thousand of these records in the entirety of DNS, making it feasible to map all of them.
-			</p>
-			<p>
-				This effort would not have been possible without tb0hdan's <a href="https://github.com/tb0hdan/domains/">list of domains</a>,
-				or without my colleagues taking it as a personal challenge to run as many scanners as they could.
-			</p>
-			<p>
-				You can find the source code on <a href="https://github.com/locplace/locplace">github</a>.
-				If you have any questions, remarks, or you just want to say hi, don't hesitate to <a href="mailto:contact@loc.place">email me</a>.
-			</p>
-		</div>
-	</div>
+	<CollapsiblePanel title="About LOC.place" isOpen={isAboutOpen} onToggle={toggleAbout}>
+		<p>
+			As one of the old, core pieces internet infrastructure, the DNS system has many obscure and
+			forgotten corners. One of those is the <a href="https://en.wikipedia.org/wiki/LOC_record"
+				>LOC record</a
+			>, which ties a domain name to a set of geographical coordinates. There are only a few
+			thousand of these records in the entirety of DNS, making it feasible to map all of them.
+		</p>
+		<p>
+			A massive thank you to tb0hdan for <a href="https://github.com/tb0hdan/domains/"
+				>this list of domains</a
+			>, and to my colleagues for taking it as a personal challenge to run as many scanners as they
+			could.
+		</p>
+		<p>
+			You can find the source code on <a href="https://github.com/locplace/locplace">github</a>. If
+			you have any questions, remarks, or you just want to say hi, don't hesitate to
+			<a href="mailto:contact@loc.place">email me</a>.
+		</p>
+	</CollapsiblePanel>
 
 	{#if stats}
-	<div class="panel" class:collapsed={!isStatsOpen}>
-		<div class="panel-header" onclick={toggleStats}>
-			<span class="title">Statistics</span>
-			<span class="toggle-icon">{isStatsOpen ? '−' : '+'}</span>
-		</div>
-		<div class="panel-content stats-content">
+		<CollapsiblePanel
+			title="Statistics"
+			isOpen={isStatsOpen}
+			onToggle={toggleStats}
+			contentClass="stats-content"
+		>
 			<div class="stat-row">
 				<span class="stat-label">LOC records</span>
 				<span class="stat-value">{stats.total_loc_records.toLocaleString()}</span>
@@ -351,46 +308,51 @@
 				<span class="stat-label">Unique domains</span>
 				<span class="stat-value">{stats.unique_root_domains_with_loc.toLocaleString()}</span>
 			</div>
-		</div>
-	</div>
+		</CollapsiblePanel>
 	{/if}
 
-	<div class="panel" class:collapsed={!isSearchOpen}>
-		<div class="panel-header" onclick={toggleSearch}>
-			<span class="title">Search</span>
-			<span class="toggle-icon">{isSearchOpen ? '−' : '+'}</span>
+	<CollapsiblePanel
+		title="Search"
+		isOpen={isSearchOpen}
+		onToggle={toggleSearch}
+		contentClass="search-content"
+	>
+		<div class="search-input-wrapper">
+			<input
+				type="text"
+				placeholder="Search FQDNs..."
+				value={searchQuery}
+				oninput={handleSearchInput}
+				class="search-input"
+			/>
+			{#if searchQuery}
+				<button
+					class="clear-search"
+					onclick={() => {
+						searchQuery = '';
+						applyFilter('');
+					}}>×</button
+				>
+			{/if}
 		</div>
-		<div class="panel-content search-content">
-			<div class="search-input-wrapper">
-				<input
-					type="text"
-					placeholder="Search FQDNs..."
-					value={searchQuery}
-					oninput={handleSearchInput}
-					class="search-input"
-				/>
-				{#if searchQuery}
-					<button class="clear-search" onclick={() => { searchQuery = ''; applyFilter(''); }}>×</button>
-				{/if}
-			</div>
-			<div class="fqdn-list">
-				{#if displayedEntries.length === 0}
-					<div class="no-results">No matching FQDNs</div>
-				{:else}
-					{#each displayedEntries as entry}
-						<button class="fqdn-item" onclick={() => selectEntry(entry)}>
-							{'fqdn' in entry ? entry.fqdn : entry.rootDomain}
-						</button>
-					{/each}
-				{/if}
-			</div>
+		<div class="fqdn-list">
+			{#if displayedEntries.length === 0}
+				<div class="no-results">No matching FQDNs</div>
+			{:else}
+				{#each displayedEntries as entry}
+					<button class="fqdn-item" onclick={() => selectEntry(entry)}>
+						{isFQDNEntry(entry) ? entry.fqdn : entry.rootDomain}
+					</button>
+				{/each}
+			{/if}
 		</div>
-	</div>
+	</CollapsiblePanel>
 </div>
 
 <style>
 	/* Prevent scroll on map page - it should fill viewport */
-	:global(html), :global(body) {
+	:global(html),
+	:global(body) {
 		overflow: hidden;
 	}
 
@@ -406,96 +368,14 @@
 		gap: 0;
 	}
 
-	.panel {
-		background: rgba(255, 255, 255, 0.9);
-		backdrop-filter: blur(8px);
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-		overflow: hidden;
-	}
-
-	.panel:first-child {
-		border-radius: 8px 8px 0 0;
-	}
-
-	.panel:last-child {
-		border-radius: 0 0 8px 8px;
-	}
-
-	.panel:only-child {
-		border-radius: 8px;
-	}
-
-	.panels-container.dark .panel {
-		background: rgba(30, 30, 30, 0.9);
-		color: #e0e0e0;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-	}
-
-	.panel-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 10px 14px;
-		cursor: pointer;
-		user-select: none;
-		font-weight: 600;
-		font-size: 14px;
-		border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-	}
-
-	.panels-container.dark .panel-header {
-		border-bottom-color: rgba(255, 255, 255, 0.1);
-	}
-
-	.panel.collapsed .panel-header {
-		border-bottom: none;
-	}
-
-	.toggle-icon {
-		font-size: 18px;
-		line-height: 1;
-		opacity: 0.6;
-	}
-
-	.panel-content {
-		padding: 12px 14px;
-		font-size: 13px;
-		line-height: 1.5;
-		max-height: 500px;
-		overflow-y: auto;
-		transition: max-height 0.2s ease, padding 0.2s ease, opacity 0.2s ease;
-	}
-
-	.panel.collapsed .panel-content {
-		max-height: 0;
-		padding-top: 0;
-		padding-bottom: 0;
-		opacity: 0;
-	}
-
-	.panel-content p {
-		margin: 0 0 10px 0;
-	}
-
-	.panel-content p:last-child {
-		margin-bottom: 0;
-	}
-
-	.panel-content a {
-		color: #2563eb;
-		text-decoration: none;
-	}
-
-	.panel-content a:hover {
-		text-decoration: underline;
-	}
-
-	.panels-container.dark .panel-content a {
-		color: #60a5fa;
+	@media (max-width: 400px) {
+		.panels-container {
+			max-width: calc(100vw - 20px);
+		}
 	}
 
 	/* Stats panel specific styles */
-	.stats-content {
+	:global(.stats-content) {
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
@@ -516,14 +396,8 @@
 		font-variant-numeric: tabular-nums;
 	}
 
-	@media (max-width: 400px) {
-		.panels-container {
-			max-width: calc(100vw - 20px);
-		}
-	}
-
 	/* Search panel styles */
-	.search-content {
+	:global(.search-content) {
 		display: flex;
 		flex-direction: column;
 		gap: 8px;

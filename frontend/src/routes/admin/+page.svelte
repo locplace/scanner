@@ -192,7 +192,9 @@
 	}
 
 	async function handleResetScan() {
-		if (!confirm('Reset all scanning progress? This will reset all domain files to pending status.'))
+		if (
+			!confirm('Reset all scanning progress? This will reset all domain files to pending status.')
+		)
 			return;
 
 		actionLoading = true;
@@ -291,9 +293,7 @@
 					></div>
 				</div>
 				<div class="file-stats">
-					<span class="file-stat pending"
-						>Pending: {formatNumber(stats.domain_files.pending)}</span
-					>
+					<span class="file-stat pending">Pending: {formatNumber(stats.domain_files.pending)}</span>
 					<span class="file-stat processing"
 						>Processing: {formatNumber(stats.domain_files.processing)}</span
 					>
@@ -314,10 +314,7 @@
 					<div class="current-file">
 						<div class="filename">{stats.current_file.filename}</div>
 						<div class="progress-bar-container small">
-							<div
-								class="progress-bar"
-								style="width: {stats.current_file.progress_pct}%"
-							></div>
+							<div class="progress-bar" style="width: {stats.current_file.progress_pct}%"></div>
 						</div>
 						<div class="file-progress">
 							<span>Lines: {formatNumber(stats.current_file.processed_lines)}</span>
