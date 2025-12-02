@@ -42,6 +42,16 @@ type ResetScanResponse struct {
 	FilesReset int `json:"files_reset"`
 }
 
+// ManualScanRequest is the request body for POST /api/admin/manual-scan.
+type ManualScanRequest struct {
+	Domains []string `json:"domains"`
+}
+
+// ManualScanResponse is the response for POST /api/admin/manual-scan.
+type ManualScanResponse struct {
+	DomainsQueued int `json:"domains_queued"`
+}
+
 // --- Scanner API Types ---
 
 // GetBatchRequest is the request body for POST /api/scanner/jobs.

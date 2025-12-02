@@ -4,6 +4,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -122,6 +123,46 @@ func (h *AdminHandlers) ResetScan(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, api.ResetScanResponse{
 		FilesReset: fileStats.Total,
+	})
+}
+
+// ManualScan handles POST /api/admin/manual-scan.
+// Queues a list of domains for scanning as a single batch.
+func (h *AdminHandlers) ManualScan(w http.ResponseWriter, r *http.Request) {
+	var req api.ManualScanRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Domains) == 0 {
+		writeError(w, "at least one domain is required", http.StatusBadRequest)
+		return
+	}
+
+	// Clean up domains: trim whitespace, skip empty lines
+	var cleanDomains []string
+	for _, d := range req.Domains {
+		d = strings.TrimSpace(d)
+		if d != "" && !strings.HasPrefix(d, "#") {
+			cleanDomains = append(cleanDomains, d)
+		}
+	}
+
+	if len(cleanDomains) == 0 {
+		writeError(w, "no valid domains provided", http.StatusBadRequest)
+		return
+	}
+
+	// Create the batch
+	domainsStr := strings.Join(cleanDomains, "\n")
+	if err := h.DB.CreateManualBatch(r.Context(), domainsStr); err != nil {
+		writeError(w, "failed to queue domains: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, api.ManualScanResponse{
+		DomainsQueued: len(cleanDomains),
 	})
 }
 

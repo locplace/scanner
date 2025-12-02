@@ -208,3 +208,41 @@ func (db *DB) DeleteBatchesForFile(ctx context.Context, fileID int) error {
 	_, err := db.Pool.Exec(ctx, `DELETE FROM scan_batches WHERE file_id = $1`, fileID)
 	return err
 }
+
+// CreateManualBatch creates a batch from manually submitted domains.
+// Uses the special "__manual_submissions__" pseudo-file for tracking.
+func (db *DB) CreateManualBatch(ctx context.Context, domains string) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// Get the manual submissions file ID
+	var fileID int
+	err = tx.QueryRow(ctx, `
+		SELECT id FROM domain_files WHERE filename = '__manual_submissions__'
+	`).Scan(&fileID)
+	if err != nil {
+		return err
+	}
+
+	// Insert the batch
+	_, err = tx.Exec(ctx, `
+		INSERT INTO scan_batches (file_id, line_start, line_end, domains)
+		VALUES ($1, 0, 0, $2)
+	`, fileID, domains)
+	if err != nil {
+		return err
+	}
+
+	// Increment batches_created on the pseudo-file for tracking
+	_, err = tx.Exec(ctx, `
+		UPDATE domain_files SET batches_created = batches_created + 1 WHERE id = $1
+	`, fileID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}

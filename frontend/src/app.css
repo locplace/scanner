@@ -10,6 +10,15 @@ body {
 	height: 100%;
 	font-family:
 		-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+	background: #fff;
+}
+
+@media (prefers-color-scheme: dark) {
+	html,
+	body {
+		background: #121212;
+		color: #e0e0e0;
+	}
 }
 
 #map {

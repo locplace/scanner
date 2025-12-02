@@ -11,6 +11,7 @@
 		getStats,
 		discoverFiles,
 		resetScan,
+		submitManualScan,
 		ApiError,
 		type Scanner,
 		type NewScanner,
@@ -38,6 +39,12 @@
 	let actionLoading = $state(false);
 	let actionResult = $state('');
 	let actionError = $state('');
+
+	// Manual scan state
+	let manualScanDomains = $state('');
+	let manualScanLoading = $state(false);
+	let manualScanResult = $state('');
+	let manualScanError = $state('');
 
 	// Auto-refresh interval
 	let refreshInterval: ReturnType<typeof setInterval> | null = null;
@@ -217,6 +224,38 @@
 		}
 	}
 
+	async function handleManualScan() {
+		const domains = manualScanDomains
+			.split('\n')
+			.map((d) => d.trim())
+			.filter((d) => d && !d.startsWith('#'));
+
+		if (domains.length === 0) {
+			manualScanError = 'Please enter at least one domain';
+			return;
+		}
+
+		manualScanLoading = true;
+		manualScanResult = '';
+		manualScanError = '';
+
+		try {
+			const result = await submitManualScan(domains);
+			manualScanResult = `Queued ${result.domains_queued} domain(s) for scanning`;
+			manualScanDomains = '';
+			loadStats();
+		} catch (e) {
+			if (e instanceof ApiError && e.status === 401) {
+				authenticated = false;
+				stopAutoRefresh();
+			} else {
+				manualScanError = e instanceof Error ? e.message : 'Failed to queue domains';
+			}
+		} finally {
+			manualScanLoading = false;
+		}
+	}
+
 	function formatDate(dateStr: string | null): string {
 		if (!dateStr) return 'Never';
 		const date = new Date(dateStr);
@@ -345,6 +384,35 @@
 			{/if}
 			{#if actionResult}
 				<p class="success">{actionResult}</p>
+			{/if}
+		</section>
+
+		<section>
+			<h2>Manual Scan</h2>
+			<p class="section-description">
+				Queue specific domains for scanning. Enter one domain per line.
+			</p>
+			<form
+				onsubmit={(e) => {
+					e.preventDefault();
+					handleManualScan();
+				}}
+			>
+				<textarea
+					bind:value={manualScanDomains}
+					placeholder={"example.com\nsubdomain.example.org\n# Comments are ignored"}
+					rows="5"
+					class="domains-input"
+				></textarea>
+				<button type="submit" disabled={manualScanLoading || !manualScanDomains.trim()}>
+					{manualScanLoading ? 'Queuing...' : 'Queue for Scanning'}
+				</button>
+			</form>
+			{#if manualScanError}
+				<p class="error">{manualScanError}</p>
+			{/if}
+			{#if manualScanResult}
+				<p class="success">{manualScanResult}</p>
 			{/if}
 		</section>
 
@@ -630,6 +698,30 @@
 		background: #c82333;
 	}
 
+	/* Manual scan section */
+	.section-description {
+		color: #666;
+		font-size: 0.9rem;
+		margin-bottom: 1rem;
+	}
+
+	.domains-input {
+		width: 100%;
+		padding: 0.75rem;
+		border: 1px solid #ccc;
+		border-radius: 4px;
+		font-family: monospace;
+		font-size: 0.875rem;
+		resize: vertical;
+		margin-bottom: 0.75rem;
+		box-sizing: border-box;
+	}
+
+	.domains-input:focus {
+		outline: none;
+		border-color: #3131dc;
+	}
+
 	/* Table */
 	.table-wrapper {
 		overflow-x: auto;
@@ -835,6 +927,184 @@
 		button {
 			padding: 0.5rem 0.75rem;
 			font-size: 0.875rem;
+		}
+	}
+
+	/* Dark mode */
+	@media (prefers-color-scheme: dark) {
+		.admin {
+			background: #121212;
+			color: #e0e0e0;
+		}
+
+		.login-container input {
+			background: #2a2a2a;
+			border-color: #444;
+			color: #e0e0e0;
+		}
+
+		.login-container button {
+			background: #4a4aff;
+		}
+
+		.login-container button:hover {
+			background: #3a3aee;
+		}
+
+		header {
+			border-bottom-color: #333;
+		}
+
+		h2 {
+			color: #e0e0e0;
+		}
+
+		h3 {
+			color: #aaa;
+		}
+
+		.stat-card {
+			background: #1e1e1e;
+		}
+
+		.stat-value {
+			color: #6a6aff;
+		}
+
+		.progress-bar-container {
+			background: #333;
+		}
+
+		.file-stat.pending {
+			background: #3d3500;
+			color: #ffd700;
+		}
+
+		.file-stat.processing {
+			background: #002d5c;
+			color: #6ab7ff;
+		}
+
+		.file-stat.complete {
+			background: #1a3d1a;
+			color: #6bcf6b;
+		}
+
+		.file-stat.total {
+			background: #2a2a2a;
+			color: #ccc;
+		}
+
+		.current-file {
+			background: #1a1a2e;
+			border-color: #333366;
+		}
+
+		.current-file .filename {
+			color: #e0e0e0;
+		}
+
+		.current-file .file-progress {
+			color: #aaa;
+		}
+
+		.section-description {
+			color: #aaa;
+		}
+
+		.domains-input {
+			background: #2a2a2a;
+			border-color: #444;
+			color: #e0e0e0;
+		}
+
+		.domains-input:focus {
+			border-color: #6a6aff;
+		}
+
+		table {
+			background: #1e1e1e;
+		}
+
+		th {
+			color: #aaa;
+		}
+
+		th,
+		td {
+			border-bottom-color: #333;
+		}
+
+		.status {
+			background: #3d1a1a;
+			color: #ff6b6b;
+		}
+
+		.status.active {
+			background: #1a3d1a;
+			color: #6bcf6b;
+		}
+
+		input[type='text'],
+		input[type='password'] {
+			background: #2a2a2a;
+			border-color: #444;
+			color: #e0e0e0;
+		}
+
+		button {
+			background: #4a4aff;
+		}
+
+		button:hover:not(:disabled) {
+			background: #3a3aee;
+		}
+
+		button:disabled {
+			background: #444;
+		}
+
+		button.delete {
+			background: #c00;
+		}
+
+		button.delete:hover {
+			background: #a00;
+		}
+
+		.logout {
+			background: #555;
+		}
+
+		.action-buttons button.danger {
+			background: #c9302c;
+		}
+
+		.action-buttons button.danger:hover:not(:disabled) {
+			background: #ac2925;
+		}
+
+		.error {
+			color: #ff6b6b;
+		}
+
+		.success {
+			color: #6bcf6b;
+		}
+
+		.muted {
+			color: #777;
+		}
+
+		.token-result {
+			background: #2a2a1a;
+			border-color: #665500;
+		}
+
+		.token-result code {
+			background: #1e1e1e;
+			border-color: #444;
+			color: #e0e0e0;
 		}
 	}
 </style>

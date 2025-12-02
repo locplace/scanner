@@ -146,3 +146,11 @@ export async function resetScan(): Promise<{ files_reset: number }> {
 	});
 	return response.json();
 }
+
+export async function submitManualScan(domains: string[]): Promise<{ domains_queued: number }> {
+	const response = await adminFetch('/api/admin/manual-scan', {
+		method: 'POST',
+		body: JSON.stringify({ domains })
+	});
+	return response.json();
+}

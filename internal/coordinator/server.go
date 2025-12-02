@@ -50,6 +50,7 @@ func NewServer(database *db.DB, cfg Config) http.Handler {
 		r.Delete("/clients/{id}", adminHandlers.DeleteClient)
 		r.Post("/discover-files", adminHandlers.DiscoverFiles)
 		r.Post("/reset-scan", adminHandlers.ResetScan)
+		r.Post("/manual-scan", adminHandlers.ManualScan)
 	})
 
 	// Scanner routes (authenticated with bearer token)
