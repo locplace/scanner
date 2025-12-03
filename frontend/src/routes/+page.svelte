@@ -79,9 +79,7 @@
 			let matchingEntries = fqdnIndex.filter((entry) => matchesAny(entry.fqdn, includeTerms));
 
 			if (hasExcludes) {
-				matchingEntries = matchingEntries.filter(
-					(entry) => !matchesAny(entry.fqdn, excludeTerms)
-				);
+				matchingEntries = matchingEntries.filter((entry) => !matchesAny(entry.fqdn, excludeTerms));
 			}
 
 			displayedEntries = matchingEntries.slice(0, 50);
@@ -108,8 +106,7 @@
 					type: 'FeatureCollection',
 					features: fullGeoJSON.features.filter((f) => {
 						const fqdns = f.properties?.fqdns;
-						const fqdnList: string[] =
-							typeof fqdns === 'string' ? JSON.parse(fqdns) : fqdns || [];
+						const fqdnList: string[] = typeof fqdns === 'string' ? JSON.parse(fqdns) : fqdns || [];
 						// Exclude if ANY fqdn matches any exclude term
 						return !fqdnList.some((fqdn) => matchesAny(fqdn, excludeTerms));
 					})
@@ -172,7 +169,7 @@
 		isStatsOpen = !isStatsOpen;
 	}
 
-	onMount(() => {
+	onMount(async () => {
 		// Set initial theme and overlay state
 		const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 		isDarkTheme = mediaQuery.matches;
@@ -181,13 +178,48 @@
 		isAboutOpen = window.innerWidth >= 768;
 		// Stats always starts collapsed
 
-		map = new maplibregl.Map({
-			container: mapContainer,
-			style: getStyleUrl(),
-			center: [0, 30],
-			zoom: 2
-		});
+		// Load stats in parallel
+		loadStats();
 
+		// Fetch GeoJSON first so we can initialize map at the right bounds
+		let initialBounds: maplibregl.LngLatBoundsLike | undefined;
+		try {
+			const response = await fetch('/api/public/records.geojson');
+			if (response.ok) {
+				const geojson: GeoJSON.FeatureCollection = await response.json();
+				fullGeoJSON = geojson;
+				fqdnIndex = buildFQDNIndex(geojson);
+				locationIndex = buildLocationIndex(geojson);
+				displayedEntries = locationIndex.slice(0, 50);
+
+				// Calculate bounds for initial view
+				if (geojson.features.length > 0) {
+					const bounds = new maplibregl.LngLatBounds();
+					for (const feature of geojson.features) {
+						const coords = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
+						bounds.extend(coords);
+					}
+					initialBounds = bounds;
+				}
+			}
+		} catch (e) {
+			console.error('Failed to pre-fetch GeoJSON:', e);
+		}
+
+		// Create map with initial bounds (no zoom jump)
+		const mapOptions: maplibregl.MapOptions = {
+			container: mapContainer,
+			style: getStyleUrl()
+		};
+		if (initialBounds) {
+			mapOptions.bounds = initialBounds;
+			mapOptions.fitBoundsOptions = { padding: 50, maxZoom: 10 };
+		} else {
+			mapOptions.center = [0, 30];
+			mapOptions.zoom = 2;
+		}
+
+		map = new maplibregl.Map(mapOptions);
 		map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
 		// Listen for theme changes
@@ -200,11 +232,14 @@
 		mediaQuery.addEventListener('change', handleThemeChange);
 
 		map.on('load', async () => {
-			await loadLOCRecords();
+			// If we pre-fetched successfully, just add the layer
+			if (fullGeoJSON) {
+				addGeoJSONLayer(fullGeoJSON, true);
+			} else {
+				// Fallback: fetch now if pre-fetch failed
+				await loadLOCRecords(true);
+			}
 		});
-
-		// Load stats
-		loadStats();
 
 		return () => {
 			mediaQuery.removeEventListener('change', handleThemeChange);
@@ -212,7 +247,87 @@
 		};
 	});
 
-	async function loadLOCRecords() {
+	function addGeoJSONLayer(geojson: GeoJSON.FeatureCollection, isInitialLoad = false) {
+		// Add or update the source
+		if (map.getSource('loc-records')) {
+			(map.getSource('loc-records') as maplibregl.GeoJSONSource).setData(geojson);
+			return;
+		}
+
+		map.addSource('loc-records', {
+			type: 'geojson',
+			data: geojson
+		});
+
+		// On initial load, start with points invisible to avoid chunky appearance
+		// They'll fade in once everything is rendered
+		map.addLayer({
+			id: 'points',
+			type: 'circle',
+			source: 'loc-records',
+			paint: {
+				'circle-radius': 8,
+				'circle-color': '#e74c3c',
+				'circle-stroke-width': 2,
+				'circle-stroke-color': '#fff',
+				'circle-opacity': isInitialLoad ? 0 : 1,
+				'circle-stroke-opacity': isInitialLoad ? 0 : 1
+			}
+		});
+
+		// Click handler for points
+		map.on('click', 'points', (e) => {
+			if (!e.features?.length) return;
+
+			const feature = e.features[0];
+			const props = feature.properties;
+			const coords = (feature.geometry as GeoJSON.Point).coordinates;
+
+			// Parse arrays - they come as JSON strings from MapLibre
+			const fqdns = typeof props?.fqdns === 'string' ? JSON.parse(props.fqdns) : props?.fqdns || [];
+			const rootDomains =
+				typeof props?.root_domains === 'string'
+					? JSON.parse(props.root_domains)
+					: props?.root_domains || [];
+
+			const container = document.createElement('div');
+			mount(MapPopup, {
+				target: container,
+				props: {
+					fqdns,
+					rootDomains,
+					latitude: coords[1],
+					longitude: coords[0],
+					altitudeM: props?.altitude_m || 0,
+					rawRecord: props?.raw_record || ''
+				}
+			});
+
+			new maplibregl.Popup()
+				.setLngLat(coords as [number, number])
+				.setDOMContent(container)
+				.addTo(map);
+		});
+
+		// Change cursor on hover
+		map.on('mouseenter', 'points', () => {
+			map.getCanvas().style.cursor = 'pointer';
+		});
+		map.on('mouseleave', 'points', () => {
+			map.getCanvas().style.cursor = '';
+		});
+
+		// On initial load, wait for map to be fully rendered before showing points
+		if (isInitialLoad) {
+			map.once('idle', () => {
+				// Fade in the points smoothly
+				map.setPaintProperty('points', 'circle-opacity', 1);
+				map.setPaintProperty('points', 'circle-stroke-opacity', 1);
+			});
+		}
+	}
+
+	async function loadLOCRecords(isInitialLoad = false) {
 		try {
 			const response = await fetch('/api/public/records.geojson');
 			if (!response.ok) throw new Error('Failed to fetch records');
@@ -225,80 +340,20 @@
 			locationIndex = buildLocationIndex(geojson);
 			displayedEntries = locationIndex.slice(0, 50);
 
-			// Add or update the source
-			if (map.getSource('loc-records')) {
-				(map.getSource('loc-records') as maplibregl.GeoJSONSource).setData(geojson);
-				return;
-			}
+			addGeoJSONLayer(geojson, isInitialLoad);
 
-			map.addSource('loc-records', {
-				type: 'geojson',
-				data: geojson
-			});
-
-			map.addLayer({
-				id: 'points',
-				type: 'circle',
-				source: 'loc-records',
-				paint: {
-					'circle-radius': 8,
-					'circle-color': '#e74c3c',
-					'circle-stroke-width': 2,
-					'circle-stroke-color': '#fff'
-				}
-			});
-
-			// Click handler for points
-			map.on('click', 'points', (e) => {
-				if (!e.features?.length) return;
-
-				const feature = e.features[0];
-				const props = feature.properties;
-				const coords = (feature.geometry as GeoJSON.Point).coordinates;
-
-				// Parse arrays - they come as JSON strings from MapLibre
-				const fqdns =
-					typeof props?.fqdns === 'string' ? JSON.parse(props.fqdns) : props?.fqdns || [];
-				const rootDomains =
-					typeof props?.root_domains === 'string'
-						? JSON.parse(props.root_domains)
-						: props?.root_domains || [];
-
-				const container = document.createElement('div');
-				mount(MapPopup, {
-					target: container,
-					props: {
-						fqdns,
-						rootDomains,
-						latitude: coords[1],
-						longitude: coords[0],
-						altitudeM: props?.altitude_m || 0,
-						rawRecord: props?.raw_record || ''
-					}
-				});
-
-				new maplibregl.Popup()
-					.setLngLat(coords as [number, number])
-					.setDOMContent(container)
-					.addTo(map);
-			});
-
-			// Change cursor on hover
-			map.on('mouseenter', 'points', () => {
-				map.getCanvas().style.cursor = 'pointer';
-			});
-			map.on('mouseleave', 'points', () => {
-				map.getCanvas().style.cursor = '';
-			});
-
-			// Fit to data bounds if we have records
-			if (geojson.features.length > 0) {
+			// Fit to data bounds on theme change (not initial load - that's handled by map constructor)
+			if (!isInitialLoad && geojson.features.length > 0) {
 				const bounds = new maplibregl.LngLatBounds();
 				for (const feature of geojson.features) {
 					const coords = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
 					bounds.extend(coords);
 				}
-				map.fitBounds(bounds, { padding: 50, maxZoom: 10 });
+				map.fitBounds(bounds, {
+					padding: 50,
+					maxZoom: 10,
+					duration: 0
+				});
 			}
 		} catch (error) {
 			console.error('Error loading LOC records:', error);
@@ -341,8 +396,14 @@
 				<span class="stat-label">LOC records</span>
 				<span class="stat-value">{stats.total_loc_records.toLocaleString()}</span>
 			</div>
+			{#if stats.unique_locations !== undefined}
+				<div class="stat-row">
+					<span class="stat-label">Unique locations</span>
+					<span class="stat-value">{stats.unique_locations.toLocaleString()}</span>
+				</div>
+			{/if}
 			<div class="stat-row">
-				<span class="stat-label">Unique domains</span>
+				<span class="stat-label">Unique apex domains</span>
 				<span class="stat-value">{stats.unique_root_domains_with_loc.toLocaleString()}</span>
 			</div>
 		</CollapsiblePanel>
@@ -384,8 +445,8 @@
 						<button
 							class="exclude-btn"
 							onclick={(e) => excludeEntry(entry, e)}
-							title="Hide from map"
-						>−</button>
+							title="Hide from map">−</button
+						>
 					</div>
 				{/each}
 			{/if}

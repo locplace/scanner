@@ -4,12 +4,42 @@
 		<meta charset="utf-8" />
 		<link rel="icon" href="data:," />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<title>LOC.place - Mapping DNS LOC records</title>
+		<title>LOC.place - Mapping DNS</title>
+		<!-- Critical CSS: prevent white/black flash before stylesheets load -->
+		<style>
+			html,
+			body,
+			#map {
+				margin: 0;
+				padding: 0;
+				width: 100%;
+				height: 100%;
+				/* Light mode: match tiles.immich.cloud background */
+				background: #cccccc;
+			}
+			/* Dark mode: match tiles.immich.cloud dark background */
+			@media (prefers-color-scheme: dark) {
+				html,
+				body,
+				#map {
+					background: #2b2b2b;
+				}
+			}
+		</style>
 		<!-- Privacy-friendly analytics by Plausible -->
 		<script async src="https://plausible.io/js/pa-C1bqgqquBjCHu4AbpwpXo.js"></script>
 		<script>
-		  window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
-		  plausible.init()
+			((window.plausible =
+				window.plausible ||
+				function () {
+					(plausible.q = plausible.q || []).push(arguments);
+				}),
+				(plausible.init =
+					plausible.init ||
+					function (i) {
+						plausible.o = i || {};
+					}));
+			plausible.init();
 		</script>
 		%sveltekit.head%
 	</head>
