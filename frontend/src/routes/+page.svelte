@@ -383,7 +383,7 @@
 <div class="panels-container" class:dark={isDarkTheme}>
 	<CollapsiblePanel title="About LOC.place" isOpen={isAboutOpen} onToggle={toggleAbout}>
 		<p>
-			As one of the old, core pieces internet infrastructure, the DNS system has many obscure and
+			As one of the old, core pieces of internet infrastructure, the DNS system has many obscure and
 			forgotten corners. One of those is the <a href="https://en.wikipedia.org/wiki/LOC_record"
 				>LOC record</a
 			>, which ties a domain name to a set of geographical coordinates. There are only a few
